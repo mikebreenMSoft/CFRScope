@@ -1,0 +1,44 @@
+// ----- Assembly references -----
+//REFERENCE @"/local/Resources/Binaries/Microsoft.Datacenter.Datamining.Cosmos.dll";
+//REFERENCE @"/local/Resources/Binaries/Internal.Exchange.Cosmos.dll";
+//REFERENCE @"/local/Resources/Binaries/DelveAnalyticsCosmosUDF.dll";
+REFERENCE @"/local/Resources/Binaries/Newtonsoft.Json.dll";
+
+// ----- Module references -----
+MODULE @"/local/PrivacyAnnotation/PrivacyAnnotation.module";
+
+// ----- Namespaces (USING) -----
+//USING Microsoft.Datacenter.Datamining.Cosmos;
+//USING Internal.Exchange.Cosmos;
+//USING DelveAnalyticsCosmosUDF;
+USING Newtonsoft.Json.Linq;
+USING Privacy;
+
+// parameters
+#DECLARE startDate string = "2025-07-24";
+#DECLARE endDate string = "2025-08-03";
+// input streams
+// add &sparsestreamset=true if potential for stream to be not there
+///#DECLARE input_path string =string.Format( @"shares/IDEAs.Prod.Data/Publish.Usage.User.Commercial.IKS.Prod.Cubes.CopilotActivityUser/Streams/v1/%Y/%m/CopilotUserActivity_cubeDaily_dataset_%Y_%m_%d.ss?date={0}...{1}",@startDate,@endDate);
+#DECLARE copilotActive string =string.Format( @"/shares/IDEAs.Prod.Data/Publish.Usage.User.Commercial.IKS.Prod.Cubes.CopilotActivityUser/Streams/v1/%Y/%m/CopilotUserActivity_cubeDaily_dataset_%Y_%m_%d.ss?date={0}...{1}",@startDate,@endDate);
+// output streams
+#DECLARE row_level_output string = String.Format(@"/shares/Users.General/link/mikebreen/ActiveUserCounts/row_level_{0}_to_{1}.ss", @startDate, @endDate);
+input_items = SSTREAM @copilotActive;
+input_items =
+    SELECT
+        UserObjectId,
+        AllAppsCopilotActionCount
+    FROM input_items
+    WHERE OMSTenantId == "cc138ffb-9c4d-433b-b211-d4549ae62e8b";
+input_items =  
+    SELECT
+        UserObjectId,
+        AllAppsCopilotActionCount
+    FROM input_items;
+input_items =  
+    SELECT
+        UserObjectId,
+        SUM(AllAppsCopilotActionCount) AS SumAllAppsCopilotActionCount
+    FROM input_items;
+[Privacy.Asset.NonPersonal]
+OUTPUT input_items TO SSTREAM @row_level_output;
