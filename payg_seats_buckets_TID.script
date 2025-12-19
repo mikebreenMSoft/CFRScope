@@ -1,0 +1,94 @@
+#CS
+using System;
+using Microsoft.Cosmos.ScopeStudio;   // Safe to include; not required for this stub
+using ScopeRuntime;                   // Gives you ScopeRuntimeContext
+
+public static class Script
+{
+    // Empty C# entry point – required for .script code-behind format
+    public static void ScriptMain(ScopeRuntimeContext context)
+    {
+        // No-op. All logic is in the SCOPE section below.
+    }
+}
+#ENDCS
+
+// ==============================
+// Cosmos SCOPE Job Configuration
+// ==============================
+// cluster: IDEAs
+// jobName: PayG_M365Copilot_Status
+// priority: normal
+// description: Latest PAYG toggle per tenant for M365CopilotChat joined to tenant profile
+// owner: mikebreen
+
+// ------------------------------
+// Parameters (you can change the service name)
+// ------------------------------
+DECLARE @ServiceName string = "M365CopilotChat";
+
+#DECLARE StartDate string = "2025-09-01";
+#DECLARE EndDate string   = "2025-09-30";
+//#DECLARE PayGModule string = @"/shares/IDEAs.Prod.Data/Publish.Profiles.Tenant.Commercial.IDEAsTenantProfile/Resources/v4/IDEAsTenantProfileExtension_v2.module";
+
+#DECLARE PayGModule string = @"/shares/IDEAs.Prod.Data/Publish/Profiles/Tenant/Commercial/IDEAsTenantProfile/Resources/v4/IDEAsTenantProfileExtension_v2.module";
+#DECLARE CopilotUsageStream string = @"/shares/IDEAs.Prod.Data/Streams/M365CopilotUsage/Current";
+
+MODULE @PayGModule AS TenantProfile;
+
+// Step 1: Get tenants with PayG active entire September + SeatSizeBucket + TotalUsers
+PayGTenantsFullMonth =
+    SELECT TenantId,
+           IDEAsSMBPaidProfile_v2_SMBPAUSeatSizeBucket AS SeatSizeBucket,
+           IDEAsTenantProfile_v2_TotalUsers AS TotalUsers
+    FROM TenantProfile.TenantProfileView
+    WHERE M365AdminPAYGOutcomeExtension_v1_PayAsYouGoPolicyEnabled == true
+          AND M365AdminPAYGOutcomeExtension_v1_ActivationDate <= StartDate
+          AND (M365AdminPAYGOutcomeExtension_v1_DeactivationDate IS NULL
+               OR M365AdminPAYGOutcomeExtension_v1_DeactivationDate >= EndDate);
+
+// Step 2: Aggregate Copilot usage for September
+CopilotUsageSept =
+    SELECT TenantId,
+           UserId,
+           SUM(CopilotCreditsUsed) AS TotalCredits
+    FROM CopilotUsageStream
+    WHERE __date >= StartDate AND __date <= EndDate
+    GROUP BY TenantId, UserId;
+
+// Step 3: Filter users exceeding 2,000 credits
+HighUsageUsers =
+    SELECT TenantId,
+           COUNT(DISTINCT UserId) AS UsersAbove2000
+    FROM CopilotUsageSept
+    WHERE TotalCredits > 2000
+    GROUP BY TenantId;
+
+// Step 4: Join with PayG tenants
+TenantLevel =
+    SELECT P.TenantId,
+           P.SeatSizeBucket,
+           P.TotalUsers,
+           IFNULL(H.UsersAbove2000, 0) AS UsersAbove2000
+    FROM PayGTenantsFullMonth AS P
+    LEFT OUTER JOIN HighUsageUsers AS H
+    ON P.TenantId == H.TenantId;
+
+// Output 1: Tenant-level data in Parquet
+OUTPUT TenantLevel
+TO "/shares/IDEAs.Prod.Data/Users.General/mikebreen/PayG_HighCopilotUsage_Sept.parquet"
+USING Outputters.Parquet();
+
+// Step 5: Aggregate by SeatSizeBucket
+SeatBucketAgg =
+    SELECT SeatSizeBucket,
+           SUM(TotalUsers) AS TotalUsersInBucket,
+           SUM(UsersAbove2000) AS TotalHighUsageUsers,
+           COUNT(DISTINCT TenantId) AS TenantCount
+    FROM TenantLevel
+    GROUP BY SeatSizeBucket;
+
+// Output 2: Aggregated by SeatSizeBucket in Parquet
+OUTPUT SeatBucketAgg
+TO "/shares/IDEAs.Prod.Data/Users.General/mikebreen/PayG_HighCopilotUsage_Sept_BySeatBucket.parquet"
+USING Outputters.Parquet();

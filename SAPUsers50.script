@@ -1,0 +1,121 @@
+
+// ===== ASSEMBLY REFERENCES =====
+//REFERENCE ASSEMBLY "Microsoft.PrivacyServices.PrivacyAnnotation.dll";
+//REFERENCE ASSEMBLY "Microsoft.DataMap.CodeAnnotation.Cosmos.dll";
+
+// ===== PARAMETERS: date range + base stream path =====
+#DECLARE startDateStr string = "2025-05-01";
+#DECLARE endDateStr   string = "2025-11-30";
+
+/// Input  ////
+#DECLARE iStream string = "/shares/IDEAs.Prod.Data/Publish/Usage/User/Commercial/IKS/Prod/Cubes/CopilotActivityUser/Streams/v1/";
+// get the data 
+cube = SSTREAM SPARSE STREAMSET @iStream
+      PATTERN @"%Y/%m/CopilotUserActivity_cubeDaily_dataset_%Y_%m_%d.ss"
+      //      2025/07/CopilotUserActivity_cubeDaily_dataset_2025_07_31.ss"
+      RANGE __date = [@startDateStr, @endDateStr];
+
+// ---------------------------
+// Output
+// ---------------------------
+#DECLARE oStreamt string = @"/local/users/mikebreen/" +
+                            "SAPActiveUsers50_2025.tsv" ;
+
+#DECLARE oStreamp string = @"/shares/IDEAs.Prod.Data/Users.General/mikebreen/SAPActiveUsers_2025.parquet";
+
+
+raw =
+    SELECT
+        ContentDate,            
+        GenerateEmailDraftEventsCount ,
+        UserObjectId       ,
+        OMSTenantId
+    FROM cube
+    WHERE OMSTenantId == "cc138ffb-9c4d-433b-b211-d4549ae62e8b"
+    ;
+
+// ===== PROJECTION: month key (for monthly aggregation) =====
+with_month =
+    SELECT
+        SUBSTR(ToString(ContentDate, "yyyy-MM-dd"), 0, 7) AS Months,
+        ContentDate,
+        GenerateEmailDraftEventsCount,
+        UserObjectId
+    FROM raw;
+
+// ===== 7‑MONTH PER-USER TOTAL + RANK (TOP 50) =====
+// Serial 1 = highest total; ties break by UserObjectId ASC to avoid duplicate serials.
+user_7month =
+    SELECT
+        UserObjectId,
+        SUM(GenerateEmailDraftEventsCount) AS GenerateEmailDraft7MonthCount
+    FROM raw
+    GROUP BY UserObjectId;
+
+top50_users =
+    SELECT TOP 50
+        UserObjectId,
+        GenerateEmailDraft7MonthCount
+    FROM user_7month
+    ORDER BY GenerateEmailDraft7MonthCount DESC, UserObjectId ASC;
+
+top50_with_serial =
+    SELECT
+        UserObjectId,
+        GenerateEmailDraft7MonthCount,
+        ROW_NUMBER() OVER (
+            ORDER BY GenerateEmailDraft7MonthCount DESC, UserObjectId ASC
+        ) AS UserSerialId
+    FROM top50_users;
+
+// ===== MONTHLY PER-USER AGGREGATION (sum/avg/median/max within month) =====
+monthly_user_stats =
+    SELECT
+        Months,
+        UserObjectId,
+        SUM(GenerateEmailDraftEventsCount)    AS SumMonthlyGenerateEmailDraft,
+        AVG(GenerateEmailDraftEventsCount)    AS AvgMonthlyGenerateEmailDraft,
+        MEDIAN(GenerateEmailDraftEventsCount) AS MedianMonthlyGenerateEmailDraft,
+        MAX(GenerateEmailDraftEventsCount)    AS MaxMonthlyGenerateEmailDraft
+    FROM with_month
+    GROUP BY Months, UserObjectId;
+
+// ===== OVERALL (7‑MONTH WINDOW) PER-USER MAX OF DAILY COUNT =====
+overall_user_max =
+    SELECT
+        UserObjectId,
+        MAX(GenerateEmailDraftEventsCount) AS MaxDailyGenerateEmailDraft7Month
+    FROM raw
+    GROUP BY UserObjectId;
+
+// ===== JOIN: keep only ranked top‑50 users; replace ObjectId with Serial =====
+monthly_top50_serialized =
+    SELECT
+        s.UserSerialId,                         // <-- use serial instead of UserObjectId
+        s.GenerateEmailDraft7MonthCount,        // overall 7‑month total (per user)
+        o.MaxDailyGenerateEmailDraft7Month,     // overall max daily in 7‑month (per user)
+        m.Months,                               // month key
+        m.SumMonthlyGenerateEmailDraft,
+        m.AvgMonthlyGenerateEmailDraft,
+        m.MedianMonthlyGenerateEmailDraft,
+        m.MaxMonthlyGenerateEmailDraft
+    FROM monthly_user_stats AS m
+    INNER JOIN top50_with_serial AS s
+        ON m.UserObjectId == s.UserObjectId
+    INNER JOIN overall_user_max AS o
+        ON m.UserObjectId == o.UserObjectId;
+
+// ===== ORDER & (optional) OUTPUT =====
+// Sorted by activity rank (serial) then Month.
+final =
+    SELECT *
+    FROM monthly_top50_serialized
+    ORDER BY UserSerialId ASC, Months ASC;
+
+OUTPUT final
+TO  @oStreamt
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);
+
+OUTPUT final
+TO  @oStreamp
+USING Outputters.Parquet();

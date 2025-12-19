@@ -1,0 +1,94 @@
+#CS
+using System;
+using Microsoft.Cosmos.ScopeStudio;   // Safe to include; not required for this stub
+using ScopeRuntime;                   // Gives you ScopeRuntimeContext
+
+public static class Script
+{
+    // Empty C# entry point – required for .script code-behind format
+    public static void ScriptMain(ScopeRuntimeContext context)
+    {
+        // No-op. All logic is in the SCOPE section below.
+    }
+}
+#ENDCS
+
+// ==============================
+// Cosmos SCOPE Job Configuration
+// ==============================
+// cluster: IDEAs
+// jobName: PayG_M365Copilot_Status
+// priority: normal
+// description: Latest PAYG toggle per tenant for M365CopilotChat joined to tenant profile
+// owner: mikebreen
+
+// ------------------------------
+// Parameters (you can change the service name)
+// ------------------------------
+DECLARE @ServiceName string = "M365CopilotChat";
+
+// ------------------------------
+// Raw source: PAYG toggle events (filtered by service)
+// ------------------------------
+@toggles_raw =
+    SELECT
+        TenantId,
+        PolicyToggleTimestamp AS LastToggleTs,
+        OutcomeId,
+        M365AdminPAYGServiceName
+    FROM OFD.UDM_MB_OutputPayGTenantProfile_v1
+    WHERE M365AdminPAYGServiceName == @ServiceName;
+
+// ------------------------------
+// Rank events within each tenant by most recent toggle
+// ------------------------------
+@toggles_ranked =
+    SELECT
+        TenantId,
+        LastToggleTs,
+        OutcomeId,
+        M365AdminPAYGServiceName,
+        ROW_NUMBER() OVER (PARTITION BY TenantId ORDER BY LastToggleTs DESC) AS rn
+    FROM @toggles_raw;
+
+// ------------------------------
+// Keep most recent per tenant & derive PayAsYouGoPolicyEnabled
+// ------------------------------
+@toggles_latest =
+    SELECT
+        TenantId,
+        LastToggleTs,
+        OutcomeId,
+        M365AdminPAYGServiceName,
+        CASE
+            WHEN OutcomeId == 6042 THEN 1
+            WHEN OutcomeId == 6043 THEN 0
+            ELSE NULL
+        END AS PayAsYouGoPolicyEnabled
+    FROM @toggles_ranked
+    WHERE rn == 1;
+
+// ------------------------------
+// Join to tenant profile for SeatSizeBucket and SMB flag
+// ------------------------------
+@joined =
+    SELECT
+        t.TenantId,
+        t.LastToggleTs,
+        t.OutcomeId,
+        t.M365AdminPAYGServiceName,
+        t.PayAsYouGoPolicyEnabled,
+        p.IDEAsSMBPaidProfile_v2_SMBPAUSeatSizeBucket AS SeatSizeBucket,
+        p.FlagSMBTenant_v2_IsSMB AS IsSMB
+    FROM @toggles_latest AS t
+    INNER JOIN OFD.UDM_TenantProfile AS p
+        ON p.OMSTenantId == t.TenantId
+    // Match your original WHERE t.OutcomeId = 6042
+    WHERE t.OutcomeId == 6042;
+
+// ------------------------------
+// Output (TSV). Change path/name as needed.
+// ------------------------------
+OUTPUT @joined
+TO "/users/mikebreen/adhoc/payg_copilot_policy_status.tsv"
+USING Outputters.Tsv(quoting:false);

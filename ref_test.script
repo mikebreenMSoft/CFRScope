@@ -1,0 +1,20 @@
+#CS
+using ScopeRuntime;
+public static class Script { public static void ScriptMain(ScopeRuntimeContext c) {} }
+#ENDCS
+
+// cluster: IDEAs
+REFERENCE OFD.UDM_MB_OutputPayGTenantProfile_v1;
+REFERENCE OFD.UDM_TenantProfile;
+
+@sample =
+    SELECT TOP 5 TenantId, PolicyToggleTimestamp, OutcomeId, M365AdminPAYGServiceName
+    FROM OFD.UDM_MB_OutputPayGTenantProfile_v1;
+
+OUTPUT @sample
+TO "/shares/IDEAs.Prod.Data/Users.General/mikebreen/ofd_sanity.tsv"
+USING Outputters.Tsv(quoting:false);
+
+OUTPUT @sample
+TO "/shares/IDEAs.Prod.Data/Users.General/mikebreen/ofd_sanity.parquet"
+USING Outputters.Parquet();

@@ -1,0 +1,122 @@
+//Script GUID:
+//Used for tracking history
+ 
+// Name: CUD_Exploration
+// Purpose: CUD Exploration
+// Change Log: 01-Oct-2025: - started (amc)
+//             07-Oct-2025: - updated privacy tagging section (amc)
+ 
+ 
+/////////////////////////////////////////////////////////////// Privacy Tagging
+//REFERENCE "IDEAs.Ppe/shares/IDEAs.Prod.Data/Common/PrivacyAnnotation/Microsoft.PrivacyServices.PrivacyAnnotation.dll";
+//REFERENCE "IDEAs.Ppe/shares/IDEAs.Prod.Data/Common/PrivacyAnnotation/Microsoft.DataMap.CodeAnnotation.Cosmos.dll";
+//MODULE @"IDEAs.Ppe/shares/IDEAs.Prod.Data/Common/PrivacyAnnotation/PrivacyAnnotation.module"; // <-- File not found, comment out or remove
+//USING Microsoft.PrivacyServices.PrivacyAnnotation;
+USING Microsoft.DataMap.CodeAnnotation.Cosmos;
+ 
+//////////////////////////////////////////////////////////////////// PARAMETERS
+ 
+// establish date and time parameters
+#DECLARE arg0 string = "@@startDate@@";
+#IF (@arg0.StartsWith("@@") OR String.IsNullOrEmpty(@arg0))
+#    DECLARE startDate DateTime = DateTime.UtcNow.AddDays(-3).Date;
+#ELSE
+#    DECLARE startDate DateTime = DateTime.Parse(@arg0).Date;
+#ENDIF
+ 
+#DECLARE arg1 string = "@@endDate@@";
+#IF (@arg1.StartsWith("@@") OR String.IsNullOrEmpty(@arg1))
+#    DECLARE endDate DateTime = DateTime.UtcNow.AddDays(-5).Date;
+#ELSE
+#    DECLARE endDate DateTime = DateTime.Parse(@arg1).Date;
+#ENDIF
+ 
+#DECLARE startDateTime string = @startDate.ToString("yyyy-MM-dd");
+#DECLARE endDateTime string = @endDate.ToString("yyyy-MM-dd");
+ 
+//////////////////////////////////////////////////////////////////////// INPUTS
+ 
+// create input stream
+// #DECLARE iStream string = @"/office.adhoc/shares/exchange.storage.prod/local/MSAI/CopilotUsage/CopilotUsageData/Daily/";
+// www.cosmos14.osdinfra.net/cosmos
+// #DECLARE iStream string = @"../Office.Adhoc/shares/exchange.storage.prod/local/MSAI/CopilotUsage/CopilotUsageData/Daily/";
+#DECLARE iStream string = "/shares/exchange.storage.prod/local/MSAI/CopilotUsage/CopilotUsageData/Daily/";
+
+/////////////////////////////////////////////////////////////////////// OUTPUTS
+ 
+// create output stream
+#DECLARE oStream string = @"/shares/IDEAs.Prod.Data/Users.General/mikebreen/" +
+                          "SAP/SAPCUD_%Y_%m_%d.ss?date=" +
+                          @endDateTime;
+
+#DECLARE oStreamt string = @"/shares/IDEAs.Prod.Data/Users.General/mikebreen/" +
+                          "SAP/SAPCUD_%Y_%m_%d.tsv?date=" +
+                          @endDateTime;
+
+#DECLARE oStreamp string = @"/shares/IDEAs.Prod.Data/Users.General/mikebreen/SAP_CUD_2025.parquet";
+
+
+//////////////////////////////////////////////////////////////////////// EXPIRY
+ 
+// set expiration date for streams created
+#DECLARE sExpiry string = "90";
+ 
+// OLD EXPIRY LOGIC
+//#DECLARE sExpiry string = IF(1080 <= (DateTime.UtcNow.Date - @startDate).TotalDays,
+//                           "0",
+//                           (1080 - (DateTime.UtcNow.Date - @startDate).TotalDays).ToString());
+ 
+////////////////////////////////////////////////////////////////// MAIN LOGIC
+ 
+// get the data from CUD as before
+//cud = SSTREAM SPARSE STREAMSET @iStream
+//      PATTERN @"%Y/%m/%d/output_%Y_%m_%d.ss"
+//      RANGE __date = [@startDateTime, @endDateTime];
+
+cud =  VIEW @"/shares/exchange.storage.prod/local/MSAI/CopilotUsage/View/CopilotUsageView.view"
+    PARAMS
+    (
+        StartDateTime = @startDate,
+        EndDateTime = @endDate,
+        IsEuropeRegion = false,
+        ConsumptionMode = "Daily"
+    );
+ 
+// apply filters and aggregate as requested
+Result =
+    SELECT
+        AadTenantId,
+        UserIdPUID,
+        CopilotProduct, 
+        //Application,
+        AppName,
+        ClientAppName,
+        Scenario,
+        Product,
+        ScenarioGroup,
+        ClientPlatform,
+        RequestTime
+        //LicenseType,
+        //Type,
+        //COUNT(DISTINCT ConversationId) AS CntDistinct_ConversationId,
+        //COUNT(DISTINCT UserIdPUID) AS CntDistinct_UserIdPuid,
+        //COUNT(DISTINCT AadTenantId) AS CntDistinct_AadTenantId,
+        //MIN(RequestTime) AS Min_RequestTime,
+        //MAX(RequestTime) AS Max_RequestTime
+    FROM cud
+    WHERE 
+        AadTenantId == "42f7676c-f455-423c-82f6-dc2d99791af7"
+        AND IsEchoTraffic != true
+        AND IsTestTraffic != true
+        AND MessageAuthor == "user"
+        AND RequestTime >= @startDate
+        //AND ScoreWithSlicerData_DWD_DIM_UserType IS NOT NULL
+         ;
+// output the result
+OUTPUT Result
+TO SSTREAM @oStream
+WITH STREAMEXPIRY @sExpiry;
+
+OUTPUT Result
+TO  @oStreamt
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);

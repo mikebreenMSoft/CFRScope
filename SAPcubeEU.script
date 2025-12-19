@@ -1,0 +1,98 @@
+// Name: SAPCube
+// Purpose: Explore data for SAP tenant
+// Author: mikebreen
+// Change Log: 2025-11-19
+
+//[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/Parquet/Microsoft.Cosmos.Parquet.dll";
+//[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Build/Parquet/Microsoft.Cosmos.Parquet.dll";
+//[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/OutputFormatters/Microsoft.Cosmos.Parquet.dll";
+
+//[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/PrivacyAnnotation/Microsoft.PrivacyServices.PrivacyAnnotation.dll";
+//[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/PrivacyAnnotation/Microsoft.DataMap.CodeAnnotation.Cosmos.dll";
+USING Microsoft.DataMap.CodeAnnotation.Cosmos;
+USING Privacy;
+ 
+//[PIN]REFERENCE "/shares/IDEAs.Prod.Data/Build/DataFactory/DBGrowth/Resources/Microsoft.Datacenter.Datamining.Cosmos.dll";
+
+// parameters
+
+#DECLARE startDateStr string = "2025-05-01";
+#DECLARE endDateStr   string = "2025-11-28";
+
+// ---------------------------
+//#DECLARE iStream string = "/shares/IDEAs.Prod.Data/Publish.Usage.User.Commercial.IKS.Prod.Cubes.CopilotActivityUser/Streams/v1/";
+#DECLARE iStream string = "/shares/IDEAs.Prod.Data/Publish/Usage/User/Commercial/IKS/Prod/Cubes/CopilotActivityUser/Streams/v1/";
+// get the data 
+cube = SSTREAM SPARSE STREAMSET @iStream
+      PATTERN @"%Y/%m/CopilotUserActivity_cubeDaily_dataset_%Y_%m_%d.ss"
+      //      2025/07/CopilotUserActivity_cubeDaily_dataset_2025_07_31.ss"
+      RANGE __date = [@startDateStr, @endDateStr];
+
+
+// ---------------------------
+// Output
+// ---------------------------
+
+
+#DECLARE oStreamt string = @"/local/users/mikebreen/" +
+                            "SAPActiveUsers_2025.tsv" ;
+
+#DECLARE oStreamp string = @"/shares/IDEAs.Prod.Data/Users.General/mikebreen/SAPActiveUsers_2025.parquet";
+
+
+// ---------------------------
+
+raw =
+    SELECT
+        ContentDate,
+        Id,
+        OMSTenantId,
+        UserObjectId,
+        EnabledM365CopilotInTeams,
+        EnabledM365CopilotInProductivityApps,
+        EnabledBusinessChat,
+        EnabledIntelligentSearch,
+        EnabledPowerPlatformConnectorPlugins,
+        EnabledGraphConnectorsCopilot,
+        IsActiveInTeams,
+        IsActiveInWord,
+        IsActiveInPowerPoint,
+        IsActiveInExcel,
+        IsActiveInOutlook,
+        IsActiveInOneNote,
+        IsActiveInLoop,
+        IsActiveInM365Chat,
+        IsActiveInBusinessChatWeb,
+        SummarizeTeamsMeetingEventsCount, //
+        SummarizeTeamsChatEventsCount,
+        SummarizeEmailThreadEventsCount,
+        SummarizeDocumentEventsCount,
+        SummarizePresentationEventsCount,
+        GenerateEmailDraftEventsCount,
+        EmailCoachingActionCount,
+        EmailsSentWithCopilotDraftCount,
+        M365ChatPromptsSubmittedCount,
+        AllAppsCopilotActionCount,  //AllAppsCopilot
+        AllAppsCopilotActionCountRL7,
+        IsActiveInOutlookRL28, //
+        SummarizeEmailThreadEventsCountRL28,
+        GenerateEmailDraftEventsCountRL28,  //emails
+        EmailCoachingActionCountRL28,
+        EmailsSentWithCopilotDraftCountRL28, //emails
+        TeamsCopilotM365ChatPromptsCountRL28,
+        OutlookCopilotM365ChatPromptsCountRL28,
+        AllAppsCopilotActionCountRL28,
+        AllAppsCopilotActiveWeeksRL28,
+        CopilotChatUnlicensedPromptsCountInOutlookRL28
+    FROM cube 
+    WHERE OMSTenantId == "cc138ffb-9c4d-433b-b211-d4549ae62e8b";
+
+[Privacy.Asset.NonPersonal]
+OUTPUT raw
+TO  @oStreamt
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);
+
+[Privacy.Asset.NonPersonal]
+OUTPUT raw
+TO  @oStreamp
+USING Outputters.Parquet();
