@@ -1,0 +1,240 @@
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/PrivacyAnnotation/Microsoft.PrivacyServices.PrivacyAnnotation.dll";
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/PrivacyAnnotation/Microsoft.DataMap.CodeAnnotation.Cosmos.dll";
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/DataFactory/DBCoreDataCommercial/Microsoft.IDEAs.CoreData.Dimensions.dll";
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/DataFactory/DBUsageProfile/System.Data.HashFunction.MurmurHash.dll";
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/DataFactory/DBUsageAggregation/Internal.OSSInfra.IDEAs.L1.Resolver.dll";
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/DataFactory/DBUsage/System.Data.HashFunction.Interfaces.dll";
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/DataFactory/DBUsage/Internal.IDEAs.ExtensibleUsage.ScopeMerged.dll";
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/DataFactory/DBUsageProfile/System.Data.HashFunction.Core.dll";
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/DataFactory/DBUsageAggregation/Internal.OSSInfra.IDEAs.ActionView.ActionViewLibrary.dll";
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/DataFactory/DBUsageAggregation/Microsoft.IDEAs.UsageDataPlatform.Resolvers.dll";
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/DataFactory/DBUsageAggregation/Newtonsoft.Json.dll";
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/DataFactory/DBUsageAggregation/System.Web.dll";
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/DataFactory/DBUsageAggregation/YamlDotNet.dll";
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/DataFactory/DBUsageProfile/Internal.IDEAs.DBScorecard.UsageProfile.dll";
+[PIN] REFERENCE "/shares/IDEAs.Prod.Data/Common/DataFactory/PLSUsageFull2/Internal.IDEAs.UsageOutcome.dll";
+USING Microsoft.DataMap.CodeAnnotation.Cosmos;
+USING Privacy;
+
+MODULE "/shares/IDEAs.Prod.Data/Publish/Profiles/Tenant/Commercial/IDEAsTenantProfile/Resources/v4/IDEAsTenantProfileExtension_v2.module" AS Module0;
+
+#DECLARE runDate DateTime = DateTimeOffset.Parse(@@windowStart@@).UtcDateTime;
+
+IDEAsTenantProfileExtension_0 = 
+    SELECT 
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInCopilotMicrosoftCom,
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInEdgeCopilot,
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInWindowsCopilot,
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInCopilotMobileApp,
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInOtherMobileApp,
+        BingCopilotAdoptionMetrics_v1_AverageActiveUserCount,
+        AllCopilotAppsTenantUsage_v1_Date,
+        AllCopilotAppsTenantUsage_v1_TrendType,
+        AllCopilotAppsTenantUsage_v1_Application,
+        AllCopilotAppsTenantUsage_v1_IDEAsCopilotEndpoint,
+        AllCopilotAppsTenantUsage_v1_IDEAsCopilotUserExperience,
+        AllCopilotAppsTenantUsage_v1_FeatureName,
+        AllCopilotAppsTenantUsage_v1_M365CopilotEnabled,
+        AllCopilotAppsTenantUsage_v1_M365Enabled,
+        AllCopilotAppsTenantUsage_v1_ActiveUserCount,
+        AllCopilotAppsTenantUsage_v1_ActionCount,
+        AllCopilotAppsTenantUsage_v1_NumberOfEngagedUsers,
+        AllCopilotAppsTenantUsage_v1_ActiveUsageDays,
+        AllCopilotAppsTenantUsage_v1_NewUserCount,
+        AllCopilotAppsTenantUsage_v1_ReturningUserCount,
+        AllCopilotAppsTenantUsage_v1_ResurrectedUserCount,
+        AllCopilotAppsTenantUsage_v1_ChurnedUserCount,
+        AllCopilotAppsTenantUsage_v1_LapsedUserCount,
+        AllCopilotAppsTenantUsage_v1_UsersActiveNDays,
+        AllCopilotAppsTenantUsage_v1_NewUsersReturnedIn2ndRollingWindow,
+        AllCopilotAppsTenantUsage_v1_LikedActionCount,
+        CopilotExtensibility_v1_Date,
+        CopilotChatHealthMetric_v1_CitationRate,
+        CopilotChatHealthMetric_v1_ServerAvailability,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P75,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P50,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P90,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P95,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P99,
+        CopilotDeclarativeAgentMakerTenantUsage_v1_TrendType,
+        CopilotDeclarativeAgentMakerTenantUsage_v1_OMSTenantId,
+        AdminCopilotSetting_v1_Date,
+        AdminCopilotSetting_v1_OMSTenantId,
+        AdminCopilotSetting_v1_PolicyID,
+        CopilotChatPromptingRateTenantUsage_v1_TrendType,
+        CopilotChatPromptingRateTenantUsage_v1_Application,
+        CopilotChatPromptingRateTenantUsage_v1_ChatType,
+        CopilotChatPromptingRateTenantUsage_v1_Platform,
+        CopilotChatPromptingRateTenantUsage_v1_OS,
+        CopilotChatPromptingRateTenantUsage_v1_HostApplication,
+        CopilotChatPromptingRateTenantUsage_v1_FeatureName,
+        CopilotChatPromptingRateTenantUsage_v1_M365CopilotEnabled,
+        CopilotChatPromptingRateTenantUsage_v1_M365Enabled,
+        CopilotChatPromptingRateTenantUsage_v1_SessionsPageStartLoading,
+        CopilotChatPromptingRateTenantUsage_v1_SessionsQuerySubmission
+    FROM Module0.IDEAsTenantProfileExtensionView
+    (
+        HistoryDate = DateTimeOffset.Parse("10/22/2025 12:00:00 AM +00:00").UtcDateTime,
+        AdminCopilotSetting_v1_StartTime = DateTimeOffset.Parse("10/22/2025 12:00:00 AM +00:00").UtcDateTime,
+        AdminCopilotSetting_v1_EndTime = DateTimeOffset.Parse("10/22/2025 12:00:00 AM +00:00").UtcDateTime,
+        AllCopilotAppsTenantUsage_v1_StartDate = DateTimeOffset.Parse("10/22/2025 12:00:00 AM +00:00").UtcDateTime,
+        AllCopilotAppsTenantUsage_v1_EndDate = DateTimeOffset.Parse("10/22/2025 12:00:00 AM +00:00").UtcDateTime,
+        BingCopilotAdoptionMetrics_v1_HistoryDate = DateTimeOffset.Parse("10/22/2025 12:00:00 AM +00:00").UtcDateTime,
+        CopilotChatHealthMetric_v1_HistoryDate = DateTimeOffset.Parse("10/22/2025 12:00:00 AM +00:00").UtcDateTime,
+        CopilotChatPromptingRateTenantUsage_v1_StartDate = DateTimeOffset.Parse("10/22/2025 12:00:00 AM +00:00").UtcDateTime,
+        CopilotChatPromptingRateTenantUsage_v1_EndDate = DateTimeOffset.Parse("10/22/2025 12:00:00 AM +00:00").UtcDateTime,
+        CopilotDeclarativeAgentMakerTenantUsage_v1_StartDate = DateTimeOffset.Parse("10/22/2025 12:00:00 AM +00:00").UtcDateTime,
+        CopilotDeclarativeAgentMakerTenantUsage_v1_EndDate = DateTimeOffset.Parse("10/22/2025 12:00:00 AM +00:00").UtcDateTime,
+        CopilotExtensibility_v1_HistoryDate = DateTimeOffset.Parse("10/22/2025 12:00:00 AM +00:00").UtcDateTime,
+        Extensions = new ARRAY<string> { "AdminCopilotSetting", "AllCopilotAppsTenantUsage", "BingCopilotAdoptionMetrics", "CopilotChatHealthMetric", "CopilotChatPromptingRateTenantUsage", "CopilotDeclarativeAgentMakerTenantUsage", "CopilotExtensibility" }
+    );
+
+AllCopilotAppsTenantUsage20251022 = 
+    SELECT 
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInCopilotMicrosoftCom,
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInEdgeCopilot,
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInWindowsCopilot,
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInCopilotMobileApp,
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInOtherMobileApp,
+        BingCopilotAdoptionMetrics_v1_AverageActiveUserCount,
+        AllCopilotAppsTenantUsage_v1_Date,
+        AllCopilotAppsTenantUsage_v1_TrendType,
+        AllCopilotAppsTenantUsage_v1_Application,
+        AllCopilotAppsTenantUsage_v1_IDEAsCopilotEndpoint,
+        AllCopilotAppsTenantUsage_v1_IDEAsCopilotUserExperience,
+        AllCopilotAppsTenantUsage_v1_FeatureName,
+        AllCopilotAppsTenantUsage_v1_M365CopilotEnabled,
+        AllCopilotAppsTenantUsage_v1_M365Enabled,
+        AllCopilotAppsTenantUsage_v1_ActiveUserCount,
+        AllCopilotAppsTenantUsage_v1_ActionCount,
+        AllCopilotAppsTenantUsage_v1_NumberOfEngagedUsers,
+        AllCopilotAppsTenantUsage_v1_ActiveUsageDays,
+        AllCopilotAppsTenantUsage_v1_NewUserCount,
+        AllCopilotAppsTenantUsage_v1_ReturningUserCount,
+        AllCopilotAppsTenantUsage_v1_ResurrectedUserCount,
+        AllCopilotAppsTenantUsage_v1_ChurnedUserCount,
+        AllCopilotAppsTenantUsage_v1_LapsedUserCount,
+        AllCopilotAppsTenantUsage_v1_UsersActiveNDays,
+        AllCopilotAppsTenantUsage_v1_NewUsersReturnedIn2ndRollingWindow,
+        AllCopilotAppsTenantUsage_v1_LikedActionCount,
+        CopilotExtensibility_v1_Date,
+        CopilotChatHealthMetric_v1_CitationRate,
+        CopilotChatHealthMetric_v1_ServerAvailability,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P75,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P50,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P90,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P95,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P99,
+        CopilotDeclarativeAgentMakerTenantUsage_v1_TrendType,
+        CopilotDeclarativeAgentMakerTenantUsage_v1_OMSTenantId,
+        AdminCopilotSetting_v1_Date,
+        AdminCopilotSetting_v1_OMSTenantId,
+        AdminCopilotSetting_v1_PolicyID,
+        CopilotChatPromptingRateTenantUsage_v1_TrendType,
+        CopilotChatPromptingRateTenantUsage_v1_Application,
+        CopilotChatPromptingRateTenantUsage_v1_ChatType,
+        CopilotChatPromptingRateTenantUsage_v1_Platform,
+        CopilotChatPromptingRateTenantUsage_v1_OS,
+        CopilotChatPromptingRateTenantUsage_v1_HostApplication,
+        CopilotChatPromptingRateTenantUsage_v1_FeatureName,
+        CopilotChatPromptingRateTenantUsage_v1_M365CopilotEnabled,
+        CopilotChatPromptingRateTenantUsage_v1_M365Enabled,
+        CopilotChatPromptingRateTenantUsage_v1_SessionsPageStartLoading,
+        CopilotChatPromptingRateTenantUsage_v1_SessionsQuerySubmission,
+        @runDate AS PharosRunDate
+    FROM IDEAsTenantProfileExtension_0;
+
+#DECLARE AllCopilotAppsTenantUsage20251022_outputPathParquet string = string.Format("{parquetOutputRootPath}/{parquetOutputRelativePath}/AllCopilotAppsTenantUsage20251022_{0:yyyy}_{0:MM}_{0:dd}/Parquet", @runDate) + "/AllCopilotAppsTenantUsage20251022{*}.parquet";
+
+
+OUTPUT 
+    AllCopilotAppsTenantUsage20251022
+TO
+    @AllCopilotAppsTenantUsage20251022_outputPathParquet
+WITH STREAMEXPIRY "1"
+USING Outputters.Parquet();
+
+#DECLARE AllCopilotAppsTenantUsage20251022_outputPathSS string = string.Format("{streamOutputRootPath}/{streamOutputRelativePath}/AllCopilotAppsTenantUsage20251022_{0:yyyy}_{0:MM}_{0:dd}.ss", @runDate);
+
+
+OUTPUT 
+    AllCopilotAppsTenantUsage20251022
+TO SSTREAM
+    @AllCopilotAppsTenantUsage20251022_outputPathSS
+WITH STREAMEXPIRY
+    "28";
+
+AllCopilotAppsTenantUsage20251022a = 
+    SELECT 
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInCopilotMicrosoftCom,
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInEdgeCopilot,
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInWindowsCopilot,
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInCopilotMobileApp,
+        BingCopilotAdoptionMetrics_v1_ActiveUserCountInOtherMobileApp,
+        BingCopilotAdoptionMetrics_v1_AverageActiveUserCount,
+        AllCopilotAppsTenantUsage_v1_Date,
+        AllCopilotAppsTenantUsage_v1_TrendType,
+        AllCopilotAppsTenantUsage_v1_Application,
+        AllCopilotAppsTenantUsage_v1_IDEAsCopilotEndpoint,
+        AllCopilotAppsTenantUsage_v1_IDEAsCopilotUserExperience,
+        AllCopilotAppsTenantUsage_v1_FeatureName,
+        AllCopilotAppsTenantUsage_v1_M365CopilotEnabled,
+        AllCopilotAppsTenantUsage_v1_M365Enabled,
+        AllCopilotAppsTenantUsage_v1_ActiveUserCount,
+        AllCopilotAppsTenantUsage_v1_ActionCount,
+        AllCopilotAppsTenantUsage_v1_NumberOfEngagedUsers,
+        AllCopilotAppsTenantUsage_v1_ActiveUsageDays,
+        AllCopilotAppsTenantUsage_v1_NewUserCount,
+        AllCopilotAppsTenantUsage_v1_ReturningUserCount,
+        AllCopilotAppsTenantUsage_v1_ResurrectedUserCount,
+        AllCopilotAppsTenantUsage_v1_ChurnedUserCount,
+        AllCopilotAppsTenantUsage_v1_LapsedUserCount,
+        AllCopilotAppsTenantUsage_v1_UsersActiveNDays,
+        AllCopilotAppsTenantUsage_v1_NewUsersReturnedIn2ndRollingWindow,
+        AllCopilotAppsTenantUsage_v1_LikedActionCount,
+        CopilotExtensibility_v1_Date,
+        CopilotChatHealthMetric_v1_CitationRate,
+        CopilotChatHealthMetric_v1_ServerAvailability,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P75,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P50,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P90,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P95,
+        CopilotChatHealthMetric_v1_ResponseLatencyInSeconds_P99,
+        CopilotDeclarativeAgentMakerTenantUsage_v1_TrendType,
+        CopilotDeclarativeAgentMakerTenantUsage_v1_OMSTenantId,
+        AdminCopilotSetting_v1_Date,
+        AdminCopilotSetting_v1_OMSTenantId,
+        AdminCopilotSetting_v1_PolicyID,
+        CopilotChatPromptingRateTenantUsage_v1_TrendType,
+        CopilotChatPromptingRateTenantUsage_v1_Application,
+        CopilotChatPromptingRateTenantUsage_v1_ChatType,
+        CopilotChatPromptingRateTenantUsage_v1_Platform,
+        CopilotChatPromptingRateTenantUsage_v1_OS,
+        CopilotChatPromptingRateTenantUsage_v1_HostApplication,
+        CopilotChatPromptingRateTenantUsage_v1_FeatureName,
+        CopilotChatPromptingRateTenantUsage_v1_M365CopilotEnabled,
+        CopilotChatPromptingRateTenantUsage_v1_M365Enabled,
+        CopilotChatPromptingRateTenantUsage_v1_SessionsPageStartLoading,
+        CopilotChatPromptingRateTenantUsage_v1_SessionsQuerySubmission,
+        @runDate AS PharosRunDate
+    FROM IDEAsTenantProfileExtension_0;
+
+#DECLARE AllCopilotAppsTenantUsage20251022a_outputPathParquet string = string.Format("{parquetOutputRootPath}/{parquetOutputRelativePath}/AllCopilotAppsTenantUsage20251022a_{0:yyyy}_{0:MM}_{0:dd}/Parquet", @runDate) + "/AllCopilotAppsTenantUsage20251022a{*}.parquet";
+
+
+OUTPUT 
+    AllCopilotAppsTenantUsage20251022a
+TO
+    @AllCopilotAppsTenantUsage20251022a_outputPathParquet
+WITH STREAMEXPIRY "1"
+USING Outputters.Parquet();
+
+#DECLARE AllCopilotAppsTenantUsage20251022a_outputPathSS string = string.Format("{streamOutputRootPath}/{streamOutputRelativePath}/AllCopilotAppsTenantUsage20251022a_{0:yyyy}_{0:MM}_{0:dd}.ss", @runDate);
+
+
+OUTPUT 
+    AllCopilotAppsTenantUsage20251022a
+TO SSTREAM
+    @AllCopilotAppsTenantUsage20251022a_outputPathSS
+WITH STREAMEXPIRY
+    "28";

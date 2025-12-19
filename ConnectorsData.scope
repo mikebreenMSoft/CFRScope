@@ -1,0 +1,654 @@
+//MODULE "/shares/exchange.storage.prod/local/PrivacyAnnotation/PrivacyAnnotation.module";
+//USING Microsoft.DataMap.CodeAnnotation.Cosmos;
+
+#DECLARE startDate DateTime = new DateTime(2025, 10, 20);
+#DECLARE endDate DateTime = new DateTime(2025, 10, 21);
+
+// Define the AgentExtendedData class and helper function
+#CS
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+public static class ProductInfoHelpers
+{
+    // 'obj' is the ProductInformation value (MAP/ARRAY/UDT).
+    // Implement your own stringification here.
+    public static string ToFlatString(object obj)
+    {
+        if (obj == null) return null;
+        return obj.ToString(); // Often not JSON; customize as needed.
+    }
+}
+
+public static class AgentDataProcessor
+{
+    // Function to get field value from ScopeStruct directly
+    public static string GetStructFieldValue(Microsoft.SCOPE.Types.ScopeStruct scopeStruct, string fieldName)
+    {
+        if (scopeStruct == null) return null;
+        
+        try
+        {
+            // Try to get as string first
+            try
+            {
+                var stringValue = scopeStruct.GetField<string>(fieldName);
+                if (stringValue != null) return stringValue;
+            }
+            catch { }
+            
+            // Try to get as ScopeArray<string>
+            try
+            {
+                var arrayValue = scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeArray<string>>(fieldName);
+                if (arrayValue != null && arrayValue.Count > 0)
+                {
+                    return string.Join(";", arrayValue.Select(x => x));
+                }
+            }
+            catch { }
+        }
+        catch { }
+        
+        return null;
+    }
+    
+    // Generic function to get field value and handle different types
+    public static string GetFieldValue(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct, string fieldName)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        
+        try
+        {
+            var structData = scopeArrayWithStruct[0];
+            
+            // Try to get as string first
+            try
+            {
+                var stringValue = structData.GetField<string>(fieldName);
+                if (stringValue != null) return stringValue;
+            }
+            catch { }
+            
+            // Try to get as ScopeArray<string> (like Capabilities)
+            try
+            {
+                var arrayValue = structData.GetField<Microsoft.SCOPE.Types.ScopeArray<string>>(fieldName);
+                if (arrayValue != null && arrayValue.Count > 0)
+                {
+                    return string.Join(";", arrayValue.Select(x => x));
+                }
+            }
+            catch { }
+        }
+        catch { }
+        
+        return null;
+    }
+}
+
+public class ReferenceCitation
+{
+    public string DataSource { get; set; }
+    public string SourceType { get; set; }
+    public string ResultSearchType { get; set; }
+    public string FromTuring { get; set; }
+    public string SubType { get; set; }
+    public string Type { get; set; }
+    public string Provenance { get; set; }
+    public bool? IsWork { get; set; }
+    public string ReferenceId { get; set; }
+    public List<string> GlobalEntityIds { get; set; }
+    public string SCDSubType { get; set; }
+    public string PluginId { get; set; }
+    public string PluginType { get; set; }
+    public bool? IsCitedInResponse { get; set; }
+    public string AppKind { get; set; }
+    
+    public override string ToString()
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.Append("{");
+        sb.AppendFormat("\"DataSource\":\"{0}\",", DataSource ?? "");
+        sb.AppendFormat("\"SourceType\":\"{0}\",", SourceType ?? "");
+        sb.AppendFormat("\"ResultSearchType\":\"{0}\",", ResultSearchType ?? "");
+        sb.AppendFormat("\"FromTuring\":\"{0}\",", FromTuring ?? "");
+        sb.AppendFormat("\"SubType\":\"{0}\",", SubType ?? "");
+        sb.AppendFormat("\"Type\":\"{0}\",", Type ?? "");
+        sb.AppendFormat("\"Provenance\":\"{0}\",", Provenance ?? "");
+        sb.AppendFormat("\"IsWork\":{0},", IsWork?.ToString().ToLower() ?? "null");
+        sb.AppendFormat("\"ReferenceId\":\"{0}\",", ReferenceId ?? "");
+        sb.AppendFormat("\"SCDSubType\":\"{0}\",", SCDSubType ?? "");
+        sb.AppendFormat("\"PluginId\":\"{0}\",", PluginId ?? "");
+        sb.AppendFormat("\"PluginType\":\"{0}\",", PluginType ?? "");
+        sb.AppendFormat("\"IsCitedInResponse\":{0},", IsCitedInResponse?.ToString().ToLower() ?? "null");
+        sb.AppendFormat("\"AppKind\":\"{0}\",", AppKind ?? "");
+        sb.AppendFormat("\"GlobalEntityIds\":[{0}]", GlobalEntityIds != null ? string.Join(",", GlobalEntityIds.Select(g => "\"" + g + "\"")) : "");
+        sb.Append("}");
+        return sb.ToString();
+    }
+}
+
+public static class ReferenceDataProcessor
+{
+    
+    
+    public static int GetReferenceCount(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        return scopeArrayWithStruct?.Count ?? 0;
+    }
+    
+    public static string GetReferenceDataSource(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        return scopeArrayWithStruct[0].GetField<string>("DataSource");
+    }
+
+    public static string GetReferenceSourceType(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        return scopeArrayWithStruct[0].GetField<string>("SourceType");
+    }
+
+    public static string GetReferenceResultSearchType(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        return scopeArrayWithStruct[0].GetField<string>("ResultSearchType");
+    }
+    
+    public static string GetReferenceFromTuring(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        return scopeArrayWithStruct[0].GetField<string>("FromTuring");
+    }
+
+    public static string GetReferenceSubType(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        return scopeArrayWithStruct[0].GetField<string>("SubType");
+    }
+    
+    public static string GetReferenceType(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        return scopeArrayWithStruct[0].GetField<string>("Type");
+    }
+    
+    public static string GetReferenceProvenance(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        return scopeArrayWithStruct[0].GetField<string>("Provenance");
+    }
+    
+    public static bool? GetReferenceIsWork(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        return scopeArrayWithStruct[0].GetField<bool?>("IsWork");
+    }
+    
+    public static string GetReferenceReferenceId(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        return scopeArrayWithStruct[0].GetField<string>("ReferenceId");
+    }
+    
+    public static string GetReferenceGlobalEntityIds(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+
+        // Try to get as string first (actual data type based on error)
+        try
+        {
+            var entityIdsString = scopeArrayWithStruct[0].GetField<string>("GlobalEntityIds");
+            return entityIdsString ?? "";
+        }
+        catch
+        {
+            // Fallback: try as array if string fails
+            try
+            {
+                var entityIds = scopeArrayWithStruct[0].GetField<Microsoft.SCOPE.Types.ScopeArray<string>>("GlobalEntityIds");
+                if (entityIds == null) return "";
+                return string.Join(";", entityIds.Select(x => x));
+            }
+            catch
+            {
+                return "";
+            }
+        }
+    }
+
+    public static string GetReferenceSCDSubType(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        return scopeArrayWithStruct[0].GetField<string>("SCDSubType");
+    }
+    
+    public static string GetReferencePluginId(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        return scopeArrayWithStruct[0].GetField<string>("PluginId");
+    }
+
+    public static string GetReferencePluginType(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        return scopeArrayWithStruct[0].GetField<string>("PluginType");
+    }
+    
+    public static bool? GetReferenceIsCitedInResponse(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        return scopeArrayWithStruct[0].GetField<bool?>("IsCitedInResponse");
+    }
+
+    public static string GetReferenceAppKind(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null || scopeArrayWithStruct.Count == 0) return null;
+        return scopeArrayWithStruct[0].GetField<string>("AppKind");
+    }
+}
+#ENDCS
+
+input =
+    VIEW "/shares/exchange.storage.prod/local/MSAI/CopilotUsage/View/CopilotUsageView.view"
+    PARAMS
+    (
+        StartDateTime = @startDate,
+        EndDateTime = @endDate,
+        IsEuropeRegion = false,
+        ConsumptionMode = "Daily"
+    );
+
+
+// this superset of data is limited to Copilot Chat and Agent use of Connectos only as EntryPoint. 
+// In order to have the Copilot Search EntryPoint. We need to join this data with SearchQueryDetails JSON. 
+// The following is the attributes and their hierarchy in SearchQueryDetails JSON:
+// SCOPE OF THE QUERY -
+// Entry point: CopilotSearch scope - found in SearchQueryDetails.ExecutionEvents[].EventMetadata.EntryPoint(?) CopilotSearch scope: officecom.aihub.search; officeshared.aihub.mobile.ios.search; officeshared.aihub.mobile.android.search"
+// Connectors responses scope: (EntityType: "External") && (ContentDomain>>class = "Connectors" )
+// ConnectorId - ContentDomain>>SubType value == ScdSubType (in LLMPromptResponse)
+// Publisher Type -  ContentDomain>Type == AppKind - empty currently (in LLMPromptResponse)
+// ConnectionId - "Connection" value ==  DataSource (in LLMPromptResponse)
+
+/*processedCopilotSearchData =
+    SELECT RequestTime,
+           UserId,
+           TenantId,
+           ExtractConnectionFromEntityTypeExternal.Connection AS ConnectionId,
+           ExtractConnectorIdFromEntityTypeExternal.ContentDomain.SubType AS ConnectorId,
+           "Copilot Search" AS Feature
+    FROM SearchQueryDetails
+    WHERE EntryPoint in (officecom.aihub.search; officeshared.aihub.mobile.ios.search; officeshared.aihub.mobile.android.search)
+        AND EntityType  == "External" 
+        AND ContentDomain.Class == "Connectors"
+
+
+UNION the two tables into a combined dataset.
+
+*/
+
+
+processedCitationData =
+    SELECT RequestTime,
+           ReferenceCitations,
+           AadTenantId,
+           UserIdPUID,
+           AgentExtendedData,
+           ProductInformation,
+           Scenario,
+           "LLMPromptResponse" AS Feature,
+           AgentDataProcessor.GetStructFieldValue(ProductInformation, "UserLicenseType") AS UserLicenseType, // mostly empty - requires joining license data to populate
+           AgentDataProcessor.GetStructFieldValue(ProductInformation, "ProductEntryPoint") AS ProductEntryPoint,
+           AgentDataProcessor.GetStructFieldValue(ProductInformation, "UserType") AS UserType,
+           ProductInfoHelpers.ToFlatString(LuClassification) AS LuClassification,
+           ReferenceDataProcessor.GetReferenceCount(ReferenceCitations) AS ReferenceCount
+    FROM input
+    WHERE (ReferenceCitations != null AND ReferenceDataProcessor.GetReferenceCount(ReferenceCitations) > 0)
+          AND (ReferenceDataProcessor.GetReferenceSubType(ReferenceCitations) ?? "") == "Connectors"
+      AND ReferenceDataProcessor.GetReferenceIsCitedInResponse(ReferenceCitations) == true;
+
+
+referenceFullResult =
+    SELECT p.RequestTime,
+           p.AadTenantId,
+           p.UserIdPUID,
+           p.UserLicenseType, // mostly empty - requires joining license data to populate isCopilotLicensed? still open
+           p.Scenario, // AppScenario in SIGS          
+           // Compute Feature: "Agent" if AgentId present; otherwise "Copilot Chat"
+           CASE
+               WHEN AgentDataProcessor.GetFieldValue(p.AgentExtendedData, "TitleId") IS NOT NULL 
+               AND  AgentDataProcessor.GetFieldValue(p.AgentExtendedData, "TitleId") != "" THEN "Agent"
+               ELSE "Copilot Chat"
+           END AS Feature,
+           //Feature - if TitleId is not Empty = Agent else = Copilot Chat. on the join with SearchQueryDetails, set the EntryPoint = CopilotSearch
+           /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+           //// SIGS AGENT INFO - the following attributes are found in AgentExtendedDataExecutionEvent specific fields in EventMetadata////
+           /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+           // Appkind is used to identify Agent Publisher Type (1p/3p/LOB)
+           AgentDataProcessor.GetFieldValue(p.AgentExtendedData, "AppKind") AS AgentAppKind,
+           //TitleId is used to identify AgentId
+           AgentDataProcessor.GetFieldValue(p.AgentExtendedData, "TitleId") AS AgentId,
+           
+           ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+           //// SIGS REFERENCE FIELDS - found in ReferencesCitationsExecutionEvent specific fields in EventMetadata////
+           ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+           // AppKind is used to identify connector Publisher Type (1p/3p/LOB) - currently empty!
+           ReferenceDataProcessor.GetReferenceAppKind(p.ReferenceCitations) AS ConnectorAppKind,
+           // Data source is ConnectionId 
+           ReferenceDataProcessor.GetReferenceDataSource(p.ReferenceCitations) AS DataSource, // ConnectionId
+           // isCitedInResponse indicates if the Connection was used to provide citation in the final response
+           ReferenceDataProcessor.GetReferenceIsCitedInResponse(p.ReferenceCitations) AS IsCitedInResponse,
+           //SubType == "Connectors" is used to filter for Connectors grounded responses
+           ReferenceDataProcessor.GetReferenceSubType(p.ReferenceCitations) AS SubType,
+           // SCDSubType = ConnectorId
+           ReferenceDataProcessor.GetReferenceSCDSubType(p.ReferenceCitations) AS SCDSubType, // ConnectorId
+           
+           // Other reference fields not used in Metric but included here for completeness
+           ReferenceDataProcessor.GetReferenceProvenance(p.ReferenceCitations) AS Provenance,
+           ReferenceDataProcessor.GetReferenceIsWork(p.ReferenceCitations) AS IsWork,
+           ReferenceDataProcessor.GetReferenceReferenceId(p.ReferenceCitations) AS ReferenceId,
+           ReferenceDataProcessor.GetReferenceGlobalEntityIds(p.ReferenceCitations) AS GlobalEntityIds,
+           ReferenceDataProcessor.GetReferencePluginId(p.ReferenceCitations) AS PluginId,
+           ReferenceDataProcessor.GetReferencePluginType(p.ReferenceCitations) AS PluginType,
+           ReferenceDataProcessor.GetReferenceSourceType(p.ReferenceCitations) AS SourceType,
+           ReferenceDataProcessor.GetReferenceResultSearchType(p.ReferenceCitations) AS ResultSearchType,
+           ReferenceDataProcessor.GetReferenceFromTuring(p.ReferenceCitations) AS FromTuring,
+           ReferenceDataProcessor.GetReferenceType(p.ReferenceCitations) AS Type
+    FROM processedCitationData AS p
+    WHERE 
+      p.ReferenceCitations != null 
+      AND ReferenceDataProcessor.GetReferenceSCDSubType(p.ReferenceCitations) IS NOT NULL
+      //include only references with non-null DataSource (connectionId)
+      AND ReferenceDataProcessor.GetReferenceDataSource(p.ReferenceCitations) IS NOT NULL
+      // Filter for Connectors references only (subtype "Connectors" and cited in response)
+      AND (ReferenceDataProcessor.GetReferenceSubType(p.ReferenceCitations) ?? "") == "Connectors"
+      AND ReferenceDataProcessor.GetReferenceIsCitedInResponse(p.ReferenceCitations) == true;
+
+
+ActiveM365CopilotConnectorUser_PreGroup =
+    SELECT
+        r.RequestTime      AS RequestTime,     // Time of the request
+        r.AadTenantId      AS TenantId,        // Tenant where connector was used
+        r.AgentAppKind     AS AgentAppKind,    // Agent Publisher Type (1p/3p/LOB)
+        r.AgentId          AS AgentId,         // AgentId that used the connector
+        r.ConnectorAppKind AS ConnectorAppKind,// Connector Publisher Type (1p/3p/LOB) - it is empty
+        r.DataSource       AS ConnectionId,    // ConnectionId of the connector used
+        r.SCDSubType       AS ConnectorId,     // ConnectorId of the connector used
+        r.UserIdPUID       AS UserIdPUID
+    FROM referenceFullResult AS r;
+
+////METRIC////
+// Active M365 Copilot Connector users - Distinct count of responses grounded in Graph Connectors
+ActiveM365CopilotConnectorUser =
+    SELECT
+        UserIdPUID,
+        TenantId,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        ConnectionId,
+        ConnectorId,
+        COUNT(DISTINCT RequestTime) AS ResponsesGroundedInGraphConnector
+    FROM ActiveM365CopilotConnectorUser_PreGroup
+    GROUP BY
+        UserIdPUID,
+        TenantId,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        ConnectionId,
+        ConnectorId;
+
+OUTPUT ActiveM365CopilotConnectorUser
+TO SSTREAM "/shares/IDEAs.Prod.Data/Users.General/gumugrab/ActiveM365CopilotConnectorUser.ss"
+WITH STREAMEXPIRY "30";
+
+OUTPUT ActiveM365CopilotConnectorUser
+TO "/shares/IDEAs.Prod.Data/Users.General/gumugrab/ActiveM365CopilotConnectorUser.tsv"
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);
+
+
+////METRIC Connections_used_by_Copilot////
+//Distinct count of active connections used by Copilot App or in Copilot powered responses in Copilot search across Desktop/Web/Mobile platforms.
+Tenant_Connections_used_by_Copilot = //COUNT(DISTINCT ConnectionId);
+    SELECT
+        TenantId,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        ConnectorId,
+        COUNT(DISTINCT ConnectionId) AS Connections_used_by_Copilot
+    FROM ActiveM365CopilotConnectorUser_PreGroup
+    GROUP BY
+        TenantId,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        ConnectorId;
+
+
+OUTPUT Tenant_Connections_used_by_Copilot
+TO SSTREAM "/shares/IDEAs.Prod.Data/Users.General/gumugrab/Tenant_Connections_used_by_Copilot.ss"
+WITH STREAMEXPIRY "30";
+
+OUTPUT Tenant_Connections_used_by_Copilot
+TO "/shares/IDEAs.Prod.Data/Users.General/gumugrab/Tenant_Connections_used_by_Copilot.tsv"
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);
+
+
+////METRIC Connections_used_by_agents////
+//Distinct count of active connections (Meta OS App) used by Agents
+Tenant_Connections_used_by_agents = //COUNT(DISTINCT ConnectionId);
+    SELECT
+        TenantId,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        ConnectorId,
+        COUNT(DISTINCT ConnectionId) AS Connections_used_by_agents
+    FROM ActiveM365CopilotConnectorUser_PreGroup
+    WHERE AgentId IS NOT NULL AND AgentId != ""
+    GROUP BY
+        TenantId,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        ConnectorId;
+
+
+OUTPUT Tenant_Connections_used_by_agents
+TO SSTREAM "/shares/IDEAs.Prod.Data/Users.General/gumugrab/Tenant_Connections_used_by_Agents.ss"
+WITH STREAMEXPIRY "30";
+
+OUTPUT Tenant_Connections_used_by_agents
+TO "/shares/IDEAs.Prod.Data/Users.General/gumugrab/Tenant_Connections_used_by_Agents.tsv"
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);
+
+
+
+
+////METRIC Active Connectors users////
+//Distinct count of active connector users who had M365 Copilot license assigned on the day of activity
+Tenant_Active_Connectors_users = 
+    SELECT
+        TenantId,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        ConnectorId,
+        COUNT(DISTINCT UserIdPUID) AS Active_Connectors_users
+    FROM ActiveM365CopilotConnectorUser_PreGroup
+    //where UserLicenseType indicates M365 Copilot license assigned
+    WHERE UserIdPUID IS NOT NULL AND UserIdPUID != "" 
+          /*AND (UserLicenseType ?? "") == "M365Copilot" - Make sure you know how to join license data before enabling this filter*/
+    GROUP BY
+        TenantId,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        ConnectorId;
+
+
+OUTPUT Tenant_Active_Connectors_users
+TO SSTREAM "/shares/IDEAs.Prod.Data/Users.General/gumugrab/Tenant_Active_Connectors_users.ss"
+WITH STREAMEXPIRY "30";
+
+OUTPUT Tenant_Active_Connectors_users
+TO "/shares/IDEAs.Prod.Data/Users.General/gumugrab/Tenant_Active_Connectors_users.tsv"
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);
+
+
+////METRIC Connector Responses////
+//Total number of responses from copilot chat or copilot search or in agents that referenced a Copilot connector
+Tenant_Connector_Responses = 
+    SELECT
+        TenantId,
+        UserIdPUID,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        ConnectorId,
+        COUNT(RequestTime) AS Connector_Responses
+    FROM ActiveM365CopilotConnectorUser_PreGroup
+    GROUP BY
+        TenantId,
+        UserIdPUID,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        ConnectorId;
+
+
+OUTPUT Tenant_Connector_Responses
+TO SSTREAM "/shares/IDEAs.Prod.Data/Users.General/gumugrab/Tenant_Connector_Responses.ss"
+WITH STREAMEXPIRY "30";
+
+OUTPUT Tenant_Connector_Responses
+TO "/shares/IDEAs.Prod.Data/Users.General/gumugrab/Tenant_Connector_Responses.tsv"
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);
+
+
+////METRIC Active connector users in Agents////
+//Distinct count of active connector users who received a response in declarative agent or a custom engine agent that referenced a Copilot connector.
+Tenant_Active_connector_users_in_Agents = 
+    SELECT
+        TenantId,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        ConnectorId,
+        COUNT(DISTINCT UserIdPUID) AS Active_connector_users_in_Agents
+    FROM ActiveM365CopilotConnectorUser_PreGroup
+    WHERE AgentId IS NOT NULL AND AgentId != ""
+    GROUP BY
+        TenantId,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        ConnectorId;
+
+
+OUTPUT Tenant_Active_connector_users_in_Agents
+TO SSTREAM "/shares/IDEAs.Prod.Data/Users.General/gumugrab/Tenant_Active_connector_users_in_Agents.ss"
+WITH STREAMEXPIRY "30";
+
+OUTPUT Tenant_Active_connector_users_in_Agents
+TO "/shares/IDEAs.Prod.Data/Users.General/gumugrab/Tenant_Active_connector_users_in_Agents.tsv"
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);
+
+///METRIC Connectors used////
+//Total number of connectors used by a user in Copilot
+User_Connectors_Used =
+    SELECT
+        UserIdPUID,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        COUNT(DISTINCT ConnectorId) AS Connectors_Used
+    FROM ActiveM365CopilotConnectorUser_PreGroup
+    GROUP BY
+        UserIdPUID,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind;
+
+
+OUTPUT User_Connectors_Used
+TO SSTREAM "/shares/IDEAs.Prod.Data/Users.General/gumugrab/User_Connectors_Used.ss"
+WITH STREAMEXPIRY "30";
+
+OUTPUT User_Connectors_Used
+TO "/shares/IDEAs.Prod.Data/Users.General/gumugrab/User_Connectors_Used.tsv"
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);
+
+///METRIC Responses received from the connector////
+//Total number of responses received by a user in Copilot Chat or in [Copilot powered search results - currently not available] or in agents for which a Copilot
+User_Responses_received_from_the_connector =
+    SELECT
+        UserIdPUID,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        ConnectorId,
+        COUNT(RequestTime)  AS Responses_Received
+    FROM ActiveM365CopilotConnectorUser_PreGroup
+    GROUP BY
+        UserIdPUID,
+        AgentAppKind,
+        AgentId,
+        ConnectorAppKind,
+        ConnectorId;
+
+OUTPUT User_Responses_received_from_the_connector
+TO SSTREAM "/shares/IDEAs.Prod.Data/Users.General/gumugrab/User_Responses_received_from_the_connector.ss"
+WITH STREAMEXPIRY "30";
+
+OUTPUT User_Responses_received_from_the_connector
+TO "/shares/IDEAs.Prod.Data/Users.General/gumugrab/User_Responses_received_from_the_connector.tsv"
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);
+
+
+
+///METRIC Last activity date////
+//Last activity date of when the user is provided a response grounded on a Copilot connector
+User_Last_activity_date =
+    SELECT
+        UserIdPUID,
+        ConnectorId,
+        MAX(RequestTime)  AS Last_Activity_Date
+    FROM ActiveM365CopilotConnectorUser_PreGroup
+    GROUP BY
+        UserIdPUID,
+        ConnectorId;
+
+OUTPUT User_Last_activity_date
+TO SSTREAM "/shares/IDEAs.Prod.Data/Users.General/gumugrab/User_Last_activity_date.ss"
+WITH STREAMEXPIRY "30";
+
+OUTPUT User_Last_activity_date
+TO "/shares/IDEAs.Prod.Data/Users.General/gumugrab/User_Last_activity_date.tsv"
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);
+
+
+///Active users in a connector////
+//Total number of licensed copilot users using a specific active connector
+Connector_Tenant_Active_users_in_a_connector =
+    SELECT
+        TenantId,
+        ConnectorId,
+        COUNT(DISTINCT UserIdPUID)  AS Active_users_in_a_connector // users with copilot license assigned
+    FROM ActiveM365CopilotConnectorUser_PreGroup
+    GROUP BY
+        TenantId,
+        ConnectorId;
+
+OUTPUT Connector_Tenant_Active_users_in_a_connector 
+TO SSTREAM "/shares/IDEAs.Prod.Data/Users.General/gumugrab/Connector_Tenant_Active_users_in_a_connector.ss"
+WITH STREAMEXPIRY "30";
+
+OUTPUT Connector_Tenant_Active_users_in_a_connector
+TO "/shares/IDEAs.Prod.Data/Users.General/gumugrab/Connector_Tenant_Active_users_in_a_connector.tsv"
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);

@@ -1,0 +1,104 @@
+//Script GUID:
+//Used for tracking history
+ 
+// Name: CUDDimensions_1
+// Purpose: CUDDimensions_1
+// Change Log: 01-Oct-2025: - started (amc)
+//             07-Oct-2025: - updated privacy tagging section (amc)
+ 
+ 
+/////////////////////////////////////////////////////////////// Privacy Tagging
+//REFERENCE "IDEAs.Ppe/shares/IDEAs.Prod.Data/Common/PrivacyAnnotation/Microsoft.PrivacyServices.PrivacyAnnotation.dll";
+//REFERENCE "IDEAs.Ppe/shares/IDEAs.Prod.Data/Common/PrivacyAnnotation/Microsoft.DataMap.CodeAnnotation.Cosmos.dll";
+//MODULE @"IDEAs.Ppe/shares/IDEAs.Prod.Data/Common/PrivacyAnnotation/PrivacyAnnotation.module"; // <-- File not found, comment out or remove
+//USING Microsoft.PrivacyServices.PrivacyAnnotation;
+USING Microsoft.DataMap.CodeAnnotation.Cosmos;
+ 
+//////////////////////////////////////////////////////////////////// PARAMETERS
+ 
+// establish date and time parameters
+#DECLARE arg0 string = "@@endDate@@";
+#IF (@arg0.StartsWith("@@") OR String.IsNullOrEmpty(@arg0))
+#    DECLARE endDate DateTime = DateTime.UtcNow.AddDays(-3).Date;
+#ELSE
+#    DECLARE endDate DateTime = DateTime.Parse(@arg0).Date.AddDays(1);
+#ENDIF
+ 
+#DECLARE arg1 string = "@@startDate@@";
+#IF (@arg1.StartsWith("@@") OR String.IsNullOrEmpty(@arg1))
+#    DECLARE startDate DateTime = DateTime.UtcNow.AddDays(-5).Date;
+#ELSE
+#    DECLARE startDate DateTime = DateTime.Parse(@arg1).Date;
+#ENDIF
+ 
+#DECLARE startDateTime string = @startDate.ToString("yyyy-MM-dd");
+#DECLARE endDateTime string = @endDate.ToString("yyyy-MM-dd");
+ 
+//////////////////////////////////////////////////////////////////////// INPUTS
+ 
+// create input stream
+// #DECLARE iStream string = @"/office.adhoc/shares/exchange.storage.prod/local/MSAI/CopilotUsage/CopilotUsageData/Daily/";
+// www.cosmos14.osdinfra.net/cosmos
+// #DECLARE iStream string = @"../Office.Adhoc/shares/exchange.storage.prod/local/MSAI/CopilotUsage/CopilotUsageData/Daily/";
+#DECLARE iStream string = "/shares/exchange.storage.prod/local/MSAI/CopilotUsage/CopilotUsageData/Daily/";
+
+/////////////////////////////////////////////////////////////////////// OUTPUTS
+ 
+// create output stream
+#DECLARE oStream string = @"/shares/IDEAs.Prod.Data/Users.General/mikebreen/" +
+                          "CUD_Exp/CUDDimensions_1_%Y_%m_%d.ss?date=" +
+                          @endDateTime;
+
+#DECLARE oStreamt string = @"/shares/IDEAs.Prod.Data/Users.General/mikebreen/" +
+                          "CUD_Exp/CUDDimensions_1_%Y_%m_%d.tsv?date=" +
+                          @endDateTime;
+ 
+//////////////////////////////////////////////////////////////////////// EXPIRY
+ 
+// set expiration date for streams created
+#DECLARE sExpiry string = "30";
+ 
+// OLD EXPIRY LOGIC
+//#DECLARE sExpiry string = IF(1080 <= (DateTime.UtcNow.Date - @startDate).TotalDays,
+//                           "0",
+//                           (1080 - (DateTime.UtcNow.Date - @startDate).TotalDays).ToString());
+ 
+////////////////////////////////////////////////////////////////// MAIN LOGIC
+ 
+// get the data from CUD as before
+cud = SSTREAM SPARSE STREAMSET @iStream
+      PATTERN @"%Y/%m/%d/output_%Y_%m_%d.ss"
+      RANGE __date = [@startDateTime, @endDateTime];
+ 
+// apply filters and aggregate as requested
+cudString =
+    SELECT
+        MeteringCheckResponse,
+        MeteringSpinResponse,
+        CopilotProduct,
+        AppName,
+        ClientAppName,
+        Scenario,
+        Product,
+        ExperienceType,
+        //ConversationId,
+        //UserIdPUID,
+        AadTenantId,
+        RequestTime
+    FROM
+        cud
+    WHERE  (CopilotProduct IN ("BizChat-Work", "BizChat-Web"))
+        AND IsEchoTraffic != true
+        AND IsTestTraffic != true
+        AND MessageAuthor == "user"
+        AND RequestTime >= @startDate
+;
+ 
+// output the result
+OUTPUT cudString
+TO SSTREAM @oStream
+WITH STREAMEXPIRY @sExpiry;
+
+OUTPUT cudString
+TO @oStreamt
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);

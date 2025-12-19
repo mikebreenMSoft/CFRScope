@@ -1,0 +1,1429 @@
+USING Microsoft.DataMap.CodeAnnotation.Cosmos;
+REFERENCE @"/local/CompliantSydney/CopilotUsage/CopilotUsageScripts/dlls/Newtonsoft.Json.dll";
+
+// --- mark stream to expire in 7 days
+DECLARE @expiration TimeSpan = TimeSpan.FromDays(7);
+
+// #DECLARE startDatetime DateTime = DateTime.Parse("2025-04-08T14:00");
+#DECLARE startDatetime DateTime = DateTime.Parse(@@startDatetime@@); // Format: yyyy-MM-ddTHH:mm, sample: "2024-03-21T11:00"
+#DECLARE regionUpperCase string = @@region@@.ToUpper(); // "ROW" or "EU"
+#DECLARE isEDPS bool = bool.Parse(@@isEDPS@@);
+#DECLARE ringUpperCase string = @@ring@@.ToUpper(); // "PROD", "PPE", "DEV", "GCCMDEV", "GCCMPPE", or "GCCM"
+#DECLARE curationGranularity string = "Daily"; //@@CurationGranularity@@; // commenting out because the pipeline is still not passing the parameter
+#DECLARE shouldLoadDataFromView bool = false; // Parameter used for view validation
+
+#DECLARE copilotUsageRowBasePath string = @"/shares/exchange.storage.prod/local/MSAI/CopilotUsage";
+#DECLARE copilotUsageEurBasePath string = @"/local/MSAI/CopilotUsage";
+#DECLARE rowDeploymentPipelineBasePath string = @"/shares/exchange.storage.prod/local/CompliantSydney/CopilotUsage/CopilotUsageScripts/DeploymentPipeline/";
+#DECLARE eurDeploymentPipelineBasePath string = @"/local/CompliantSydney/CopilotUsage/CopilotUsageScripts/DeploymentPipeline/";
+#DECLARE copilotUsageViewFilename string = @ringUpperCase.StartsWith("GCCM") ? "CopilotUsageGCCView.view" : "CopilotUsageView.view";
+
+#IF (@regionUpperCase == "EU")
+    MODULE "/local/MSAI/SSS/PrivacyAnnotation/PrivacyAnnotation.module";
+    #IF(@isEDPS)
+        #DECLARE inputBasePath string = @"abfs://edps@substrateadlsg2neuprod.dfs.core.windows.net/local/MSAI/CopilotUsage/CopilotUsageData/" + @curationGranularity + "/";
+        #DECLARE outputBasePath string = @"abfs://edps@substrateadlsg2neuprod.dfs.core.windows.net/local/MSAI/CopilotUsage/Validations/DecodedData/" + @curationGranularity + "/";
+    #ELSEIF (@ringUpperCase == "DEV" OR @ringUpperCase == "PPE")
+        #DECLARE inputBasePath string = @copilotUsageEurBasePath + "/Validations/" + @ringUpperCase + "/Curation/" + @curationGranularity + "/";
+        #DECLARE outputBasePath string = @inputBasePath + @startDatetime.ToString("yyyy/MM/dd") + "/";
+        #DECLARE copilotUsageViewPath string = @eurDeploymentPipelineBasePath + @ringUpperCase + "/CurationScript/Views/" + @copilotUsageViewFilename;
+
+    #ELSE // PROD
+        #DECLARE inputBasePath string = @copilotUsageEurBasePath + "/CopilotUsageData/" + @curationGranularity + "/";
+        #DECLARE outputBasePath string = @copilotUsageEurBasePath + "/Validations/DecodedData/" + @curationGranularity + "/";
+        #DECLARE copilotUsageViewPath string = @copilotUsageEurBasePath + "/View/" + @copilotUsageViewFilename; // OK
+    #ENDIF
+#ELSE // ROW
+    MODULE "/shares/exchange.storage.prod/local/PrivacyAnnotation/PrivacyAnnotation.module";
+    // GCCMDEV, GCCMPPE or GCCM ring
+    #IF (@ringUpperCase.StartsWith("GCCM"))
+        #DECLARE ringPureName = @ringUpperCase == "GCCM" ? "PROD" : @ringUpperCase.Replace("GCCM", "");
+        #DECLARE inputBasePath string = @copilotUsageRowBasePath + "/GCCM/" + @ringUpperCase + "/CopilotUsageData/" + @curationGranularity + "/";
+
+        #DECLARE gccmOutputBasePath string = @copilotUsageRowBasePath + "/GCCM/Validations/" + @ringUpperCase + "/DecodedData/" + @curationGranularity + "/";
+        #DECLARE nonProdOutputBasePath string = @inputBasePath + @startDatetime.ToString("yyyy/MM/dd") + "/";
+        #DECLARE outputBasePath string = @ringPureName == "PROD" ? @gccmOutputBasePath : @nonProdOutputBasePath;
+
+        #DECLARE copilotUsageViewPath string = @rowDeploymentPipelineBasePath + @ringPureName + "/CurationScript/Views/" + @copilotUsageViewFilename;
+    #ELSEIF (@ringUpperCase == "DEV" OR @ringUpperCase == "PPE")
+        #DECLARE inputBasePath string = @copilotUsageRowBasePath + "/Validations/" + @ringUpperCase + "/Curation/" + @curationGranularity + "/";
+        #DECLARE outputBasePath string = @inputBasePath + @startDatetime.ToString("yyyy/MM/dd") + "/";
+        #DECLARE copilotUsageViewPath string = @rowDeploymentPipelineBasePath + @ringUpperCase + "/CurationScript/Views/" + @copilotUsageViewFilename;
+    #ELSE // PROD
+        #DECLARE inputBasePath string = @copilotUsageRowBasePath + "/CopilotUsageData/" + @curationGranularity + "/";
+        #DECLARE outputBasePath string = @copilotUsageRowBasePath + "/Validations/DecodedData/" + @curationGranularity + "/";
+        #DECLARE copilotUsageViewPath string = @copilotUsageRowBasePath + "/View/" + @copilotUsageViewFilename;
+    #ENDIF
+#ENDIF
+
+#DECLARE fileDatePath string = @curationGranularity == "Hourly" ? @startDatetime.ToString("yyyy_MM_dd_HH") : @startDatetime.ToString("yyyy_MM_dd");
+#DECLARE outputFileSuffix string = @shouldLoadDataFromView ? "_decoded_fromView.tsv" : "_decoded.tsv";
+
+#DECLARE inputDataPath = @inputBasePath + @startDatetime.ToString("yyyy/MM/dd") + "/output_" + @fileDatePath + ".ss";
+#DECLARE outputPath string = @outputBasePath + @fileDatePath + @outputFileSuffix;
+
+#IF(@shouldLoadDataFromView)
+    #DECLARE viewStartDatetimeParameter DateTime = @curationGranularity == "Hourly" ? @startDatetime : @startDatetime.Date;
+    #DECLARE viewEndDatetimeParameter DateTime = @curationGranularity == "Hourly" ? @startDatetime.AddHours(1) : @startDatetime.Date.AddDays(1).AddTicks(-1);
+    #DECLARE viewConsumeHourlyParameter bool = @curationGranularity == "Hourly";
+    #DECLARE viewIsEuropeRegionParameter bool = @regionUpperCase == "EU";
+
+    copilotUsageView =
+        VIEW @copilotUsageViewPath
+        PARAMS (
+            StartDateTime = @viewStartDatetimeParameter,
+            EndDateTime = @viewEndDatetimeParameter,
+            ConsumeHourly = @viewConsumeHourlyParameter,
+            IsEuropeRegion = @viewIsEuropeRegionParameter
+            );
+
+    inputData = SELECT * FROM @copilotUsageView;
+#ELSE
+    inputData = SSTREAM @inputDataPath;
+#ENDIF
+
+// convert object columns to string
+transformedInput =
+    SELECT  TurnLevelCorrelationId,
+            // ClientCorrelationId, // value not exposed in the view
+            CorrelationId,
+            RequestTime,
+            AadTenantId,
+            Oid,
+            DatasetCategory,
+            ConversationId,
+            RequestId,
+            SourceBranch,
+            ClientSessionId,
+            AppName,
+            ClientAppName,
+            Scenario,
+            Product,
+            ClientPlatform,
+            Market,
+            Locale,
+            MyReaderHelper.FromEnvironmentContextStructToString(EnvironmentContext) AS EnvironmentContext,
+            IsEchoTraffic,
+            IsTestTraffic,
+            ExperienceType,
+            MyReaderHelper.FromStringArrayToString(CiqInsertedEntityTypes) AS CiqInsertedEntityTypes,
+            MyReaderHelper.FromActionStructArrayToString(ResponseActionList) AS ResponseActionList,
+            MyReaderHelper.FromActionStructArrayToString(SystemActionList) AS SystemActionList,
+            SydneyFirstChunkFinalResponse,
+            SydneyFirstServiceResponse,
+            SydneyLastChunkFinalResponse,
+            SydneyFirstTokenRenderedModel,
+            ChatFirstChunkFinalResponse,
+            ChatFirstServiceResponse,
+            ChatLastChunkFinalResponse,
+            ChatFirstTokenRenderedModel,
+            ChatFirstTokenRenderedCoalesce,
+            ChatLastTokenRenderedCoalesce,
+            SSSQueryAPILatency,
+            SearchWebLatency,
+            LLMSydneyLatency,
+            RequestPerfSegments,
+            UserPerceivedLoadTime,
+            FluxLoopCount,
+            ToolTriggerCount,
+            MyReaderHelper.FromIntOrDoubleStructToString(ClientLatency) AS ClientLatency,
+            MyReaderHelper.FromIntStructToString(SydneyLatency) AS SydneyLatency,
+            MyReaderHelper.FromIntStructToString(LLMLatency) AS LLMLatency,
+            MyReaderHelper.FromSSSToolsLatencyStructToString(SSSToolsLatency) AS SSSToolsLatency,
+            MyReaderHelper.FromIntStructToString(GroundingLatency) AS GroundingLatency,
+            MyReaderHelper.FromIntStructToString(UPLTLatency) AS UPLTLatency,
+            OptionVariantsSet,
+            SydneyAvailability,
+            IsWebPluginEnabled,
+            LLMContextPromptTruncated,
+            Country,
+            TurnNumberInConversation,
+            UtteranceLength,
+            OrchestratorIterationCount,
+            IsDisengaged,
+            EchoExperiment,
+            RaiFiltersTriggered,
+            UserIdPUID,
+            NoApologyDetectedState,
+            ClientAppVersion,
+            MyReaderHelper.FromFlightStructToString(Flights) AS Flights,
+            MyReaderHelper.FromASSSStructArrayToString(SSSRequests) AS SSSRequests,
+            MyReaderHelper.FromBingRequestsStructArrayToString(BingRequests) AS BingRequests,
+            MyReaderHelper.FromLLMRequestsStructArrayToString(LLMRequests) AS LLMRequests,
+            MyReaderHelper.FromReferenceCitationsStructArrayToString(ReferenceCitations) AS ReferenceCitations,
+            // RequestEventCount, // value not exposed in the view
+            // ClientEventCount, // value not exposed in the view
+            MyReaderHelper.FromSuggestionResultsStructArrayToString(SuggestionResults) AS SuggestionResults,
+            MyReaderHelper.FromArrayStringArrayToString(ToolExecutionFlow) AS ToolExecutionFlow,
+            TenantName,
+            TenantIndustry,
+            TenantSegmentName,
+            TenantSubSegmentName,
+            TenantCountry,
+            TenantCountryCode,
+            TenantLicenseCount,                         
+            TenantEnabledUserCount,
+            TenantDailyUserCount,
+            TenantDailyM365CopilotPAU,
+            TenantDailyM365PAU,
+            TenantWeeklyUserCount,
+            TenantWeeklyM365CopilotPAU,
+            TenantWeeklyM365PAU,
+            TenantMonthlyUserCount,
+            TenantMonthlyM365CopilotPAU,
+            TenantMonthlyM365PAU,
+            TenantSkuName,
+            IsS500Tenant,
+            IsTestTenant,
+            WebEnabledStatus,
+            MyReaderHelper.FromCopilotExtensionIdsStructArrayToString(CopilotExtensionIds) AS CopilotExtensionIds,
+            SSSEmptyResultRequests,
+            SSSEmptyResultSuccessfulRequests,
+            SSSTotalRequests,
+            SSSTotalSuccessfulRequests,
+            SSSTotalIterations,
+            SSSTotalResultsCount,
+            IsSearchTriggered,
+            MyReaderHelper.FromUsedEntityAnnotationsStructArrayToString(UsedEntityAnnotations) AS UsedEntityAnnotations,
+            NudgeTriggered,
+            ClientRegion,
+            CopilotProduct,
+            LanguageMismatchType,
+            CopilotExtensionState,
+            LuClassification,
+            MyReaderHelper.FromPluginExecutionsStructArrayToString(PluginExecutions) AS PluginExecutions,
+            MyReaderHelper.FromAgentExtendedDataStructArrayToString(AgentExtendedData) AS AgentExtendedData,
+            MyReaderHelper.FromMeteringCheckResponseStructArrayToString(MeteringCheckResponse) AS MeteringCheckResponse,
+            MyReaderHelper.FromMeteringSpinResponseStructArrayToString(MeteringSpinResponse) AS MeteringSpinResponse,
+            MessageAuthor,
+            MessageType,
+            FromHistory,
+            IsDevMode,
+            FluxVersion,
+            OrchestratorName,
+            MyReaderHelper.FromMeteringSpinRequestStructArrayToString(MeteringSpinRequest) AS MeteringSpinRequest,
+            ChatMode,
+            UserEngagementType,
+            MyReaderHelper.FromRealtimeConnectionResultStructToString(RealtimeConnectionResult) AS RealtimeConnectionResult,
+            MyReaderHelper.FromExtensionExecutionFlowStructToString(ExtensionExecutionFlow) AS ExtensionExecutionFlow,
+            MyReaderHelper.FromClientInformationStructToString(ClientInformation) AS ClientInformation,
+            ClientServerRequestTime,
+            FromCode,
+            RedirectId,
+            MyReaderHelper.FromCustomInstructionUpsertResultStructToString(CustomInstructionUpsertResult) AS CustomInstructionUpsertResult,
+            MyReaderHelper.FromPersonalizationSettingsStructArrayToString(PersonalizationSettings) AS PersonalizationSettings,
+            MyReaderHelper.FromSkdsMetricsStructArrayToString(SkdsMetrics) AS SkdsMetrics,
+            MyReaderHelper.FromSensitivityLabelStructToString(SensitivityLabel) AS SensitivityLabel,
+            MyReaderHelper.FromChatPlusPagesStructArrayToString(ChatPlusPages) AS ChatPlusPages,
+            MyReaderHelper.FromStringArrayToString(Apis) AS Apis,
+            MyReaderHelper.FromProductInformationStructToString(ProductInformation) AS ProductInformation,
+            MyReaderHelper.FromToolExecutionDetailsToString(ToolExecutionDetails) AS ToolExecutionDetails,
+            IsSideBySideTraffic,
+            MyReaderHelper.FromSideBySideToString(SideBySide) AS SideBySide,
+            SafetyRouterTriggered,
+            ScenarioGroup,
+            MyReaderHelper.FromTeamsMeetingMetadataStructToString(TeamsMeetingMetadata) AS TeamsMeetingMetadata,
+            SydneyChatApiDateTime,
+            IsUpiaUserMessageTriggered,
+            IsXpiaToolOutputTriggered,
+            IsCopyrightViolationTriggered,
+            IsUserMessageBlockListTriggered,
+            IsBotResponseBlockListTriggered,
+            MyReaderHelper.FromStringArrayToString(TriggeredCapabilities) AS TriggeredCapabilities,
+            ParentSessionId
+    FROM inputData;
+
+
+[Privacy.Asset.IntermediateEngineering]
+[Privacy.DataType.ProductAndServiceUsage]
+[Privacy.Subject.User.ObjectId(Column="Oid", Format=Privacy.Subject.User.ObjectId.AllowedFormat.Guid)]
+[Privacy.Subject.User.Puid(Column="UserIdPUID", Format=Privacy.Subject.User.Puid.AllowedFormat.Guid)]
+[Privacy.Column.TenantId(Column="AadTenantId", Format=Privacy.Column.TenantId.AllowedFormat.Guid)]
+OUTPUT transformedInput
+TO @outputPath
+WITH STREAMEXPIRY @expiration
+USING DefaultTextOutputter(outputHeader:true);
+
+
+#CS
+using System.Collections;
+using Newtonsoft.Json;
+
+public static class MyReaderHelper
+{
+
+    public static SSSRequests FromSSSStructToString(ScopeStruct scopeStruct)
+    {
+        var sssRequests = new SSSRequests();
+        sssRequests.Timestamp = scopeStruct.GetField<DateTime?>("Timestamp");
+        sssRequests.ImpressionId=scopeStruct.GetField<string>("ImpressionId");
+        sssRequests.HttpStatus=scopeStruct.GetField<string>("HttpStatus");
+        sssRequests.Latency=scopeStruct.GetField<double?>("Latency");
+        sssRequests.RestrictedSearchMode=scopeStruct.GetField<int?>("RestrictedSearchMode");
+        sssRequests.ResultCount=scopeStruct.GetField<int?>("ResultCount");
+        sssRequests.IterationSequenceNumber=scopeStruct.GetField<int?>("IterationSequenceNumber");
+        sssRequests.Results=new List<SSSRequestsResults>(
+            scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct>>("Results").Select(s => 
+                new SSSRequestsResults{
+                    ReferenceId = s.GetField<string>("ReferenceId"),
+                    GlobalEntityIds = s.GetField<string>("GlobalEntityIds"),
+                    EntityType = s.GetField<string>("EntityType"),
+                    Provenance = s.GetField<string>("Provenance"),
+                    ResultSearchType = s.GetField<string>("ResultSearchType"),
+                    Position = s.GetField<int?>("Position"),
+                    RelatedContent = new List<SSSRequestsResultsRelatedContent>(
+                        s.GetField<Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct>>("RelatedContent").Select(ss => 
+                            new SSSRequestsResultsRelatedContent{
+                                Type = ss.GetField<string>("Type")
+                            }
+                        )
+                    )
+                }
+            )
+        );
+        sssRequests.GroundingHints = new List<string>(scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeArray<string>>("GroundingHints"));
+        sssRequests.SensitivityLabel = new List<SSSRequestsSensitivityLabel>(
+            scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct>>("SensitivityLabel").Select(sl => 
+                new SSSRequestsSensitivityLabel{
+                    HasSensitivityLabelId = sl.GetField<bool?>("HasSensitivityLabelId"),
+                    HasSensitivityLabel = sl.GetField<bool?>("HasSensitivityLabel"),
+                    IsContainerSensitivityLabel = sl.GetField<bool?>("IsContainerSensitivityLabel")
+                }
+            )
+        );
+
+        return sssRequests;
+    }
+
+    public static string FromASSSStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<SSSRequests> sssRequests = new List<SSSRequests>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            sssRequests.Add(FromSSSStructToString(scopeStruct));
+        }
+
+        return JsonConvert.SerializeObject(sssRequests, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromCopilotExtensionIdsStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<CopilotExtensionIds> result = new List<CopilotExtensionIds>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            result.Add(new CopilotExtensionIds {
+                Id = scopeStruct.GetField<string>("Id")
+            });
+        }
+
+        return JsonConvert.SerializeObject(result, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static BingRequests FromBingRequestStructToString(ScopeStruct scopeStruct)
+    {
+        var bingRequests = new BingRequests();
+        bingRequests.Timestamp = scopeStruct.GetField<DateTime?>("Timestamp");
+        bingRequests.ImpressionId=scopeStruct.GetField<string>("ImpressionId");
+        bingRequests.HttpStatus=scopeStruct.GetField<string>("HttpStatus");
+        bingRequests.Latency=scopeStruct.GetField<double?>("Latency");
+        bingRequests.ResultCount=scopeStruct.GetField<int?>("ResultCount");
+        bingRequests.IterationSequenceNumber=scopeStruct.GetField<int?>("IterationSequenceNumber");
+
+        return bingRequests;
+    }
+
+    public static string FromBingRequestsStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<BingRequests> bingRequests = new List<BingRequests>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            bingRequests.Add(FromBingRequestStructToString(scopeStruct));
+        }
+
+        return JsonConvert.SerializeObject(bingRequests, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static LLMRequests FromLLMRequestStructToString(ScopeStruct scopeStruct)
+    {
+        var requests = new LLMRequests();
+        requests.Timestamp = scopeStruct.GetField<DateTime?>("Timestamp");
+        requests.Id=scopeStruct.GetField<string>("Id");
+        requests.LLMModel=scopeStruct.GetField<string>("LLMModel");
+        requests.HttpStatus=scopeStruct.GetField<string>("HttpStatus");
+        requests.Latency=scopeStruct.GetField<double?>("Latency");
+        requests.TokensCount = new LLMRequestsTokensCount {
+            CallTag = scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeStruct>("TokensCount").GetField<string>("CallTag"),
+            InputTokenType = scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeStruct>("TokensCount").GetField<string>("InputTokenType"),
+            InputTokensCount = scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeStruct>("TokensCount").GetField<long?>("InputTokensCount"),
+            OutputTokensCount = scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeStruct>("TokensCount").GetField<long?>("OutputTokensCount"),
+        };
+        requests.LLMModelName=scopeStruct.GetField<string>("LLMModelName");
+        requests.ModelClassification=scopeStruct.GetField<string>("ModelClassification");
+        requests.SwitcherModelOutput=scopeStruct.GetField<string>("SwitcherModelOutput");
+
+        return requests;
+    }
+
+    public static string FromLLMRequestsStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<LLMRequests> llmRequests = new List<LLMRequests>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            llmRequests.Add(FromLLMRequestStructToString(scopeStruct));
+        }
+
+        return JsonConvert.SerializeObject(llmRequests, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromReferenceCitationsStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<ReferenceCitations> referenceCitations = new List<ReferenceCitations>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            referenceCitations.Add(new ReferenceCitations {
+                DataSource = scopeStruct.GetField<string>("DataSource"),
+                SourceType = scopeStruct.GetField<string>("SourceType"),
+                ResultSearchType = scopeStruct.GetField<string>("ResultSearchType"),
+                FromTuring = scopeStruct.GetField<string>("FromTuring"),
+                SubType = scopeStruct.GetField<string>("SubType"),
+                Type = scopeStruct.GetField<string>("Type"),
+                Provenance = scopeStruct.GetField<string>("Provenance"),
+                IsWork = scopeStruct.GetField<bool?>("IsWork"),
+                ReferenceId = scopeStruct.GetField<string>("ReferenceId"),
+                GlobalEntityIds = scopeStruct.GetField<string>("GlobalEntityIds"),
+                SCDSubType = scopeStruct.GetField<string>("SCDSubType"),
+                LayoutType = scopeStruct.GetField<string>("LayoutType"),
+                PluginId = scopeStruct.GetField<string>("PluginId"),
+                PluginType = scopeStruct.GetField<string>("PluginType"),
+                IsCitedInResponse = scopeStruct.GetField<bool?>("IsCitedInResponse"),
+                AppKind = scopeStruct.GetField<string>("AppKind")
+            });
+        }
+
+        return JsonConvert.SerializeObject(referenceCitations, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromSuggestionResultsStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<SuggestionResults> result = new List<SuggestionResults>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            result.Add(new SuggestionResults {
+                Timestamp = scopeStruct.GetField<DateTime?>("Timestamp"),
+                MessageId = scopeStruct.GetField<string>("MessageId"),
+                SuggestionCategory = scopeStruct.GetField<string>("SuggestionCategory")
+            });
+        }
+
+        return JsonConvert.SerializeObject(result, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromStringArrayToString(ScopeArray<string> scopeArray)
+    {
+        return string.Join(", ", scopeArray);
+    }
+
+    public static string FromEnvironmentContextStructToString(ScopeStruct scopeStruct)
+    {
+        var result = "{";
+        ScopeArray<string> scopeFields = scopeStruct.Fields;
+        foreach (var scopeField in scopeFields)
+        {
+            string value = scopeStruct.GetField<string>(scopeField);
+            result = string.IsNullOrEmpty(value) ? result : result + scopeField + ":" + value + ", ";
+        }
+        result += "} ";
+        return result == "{} " ? null : result;
+    }
+
+    public static string FromIntStructToString(ScopeStruct scopeStruct)
+    {
+        var result = "{";
+        ScopeArray<string> scopeFields = scopeStruct.Fields;
+        foreach (var scopeField in scopeFields)
+        {
+            int? value = scopeStruct.GetField<int?>(scopeField);
+            result = value == null ? result : result + scopeField + ":" + value + ", ";
+        }
+        result += "} ";
+        return result == "{} " ? null : result;
+    }
+
+    public static string FromIntOrDoubleStructToString(ScopeStruct scopeStruct)
+    {
+        if (scopeStruct == null)
+        {
+            return null;
+        }
+
+        var result = "{";
+        ScopeArray<string> scopeFields = scopeStruct.Fields;
+        
+        foreach (var scopeField in scopeFields)
+        {
+            bool fieldProcessed = false;
+            
+            // Try to get as int first
+            try
+            {
+                int? intValue = scopeStruct.GetField<int?>(scopeField);
+                if (intValue != null)
+                {
+                    result += scopeField + ":" + intValue + ", ";
+                    fieldProcessed = true;
+                }
+            }
+            catch (Exception)
+            {
+                // Field is not an int, continue to try double
+            }
+            
+            // If not processed as int, try as double
+            if (!fieldProcessed)
+            {
+                try
+                {
+                    double? doubleValue = scopeStruct.GetField<double?>(scopeField);
+                    if (doubleValue != null)
+                    {
+                        result += scopeField + ":" + doubleValue + ", ";
+                    }
+                }
+                catch (Exception)
+                {
+                    // Field is neither int nor double, skip it
+                }
+            }
+        }
+        
+        result += "} ";
+        return result == "{} " ? null : result;
+    }
+
+    public static string FromSSSToolsLatencyStructToString(ScopeStruct scopeStructValue)
+    {
+        if (scopeStructValue == null) {
+            return null;
+        }
+
+        var sssToolsLatency = new SSSToolsLatency {
+            SSS_Emails_Iter1 = scopeStructValue.GetField<int?>("SSS_Emails_Iter1"),
+            SSS_Emails_Iter2 = scopeStructValue.GetField<int?>("SSS_Emails_Iter2"),
+            SSS_Files_Iter1 = scopeStructValue.GetField<int?>("SSS_Files_Iter1"),
+            SSS_Files_Iter2 = scopeStructValue.GetField<int?>("SSS_Files_Iter2"),
+            SSS_Chat_Iter1 = scopeStructValue.GetField<int?>("SSS_Chat_Iter1"),
+            SSS_Chat_Iter2 = scopeStructValue.GetField<int?>("SSS_Chat_Iter2"),
+            SSS_Meetings_Iter1 = scopeStructValue.GetField<int?>("SSS_Meetings_Iter1"),
+            SSS_Meetings_Iter2 = scopeStructValue.GetField<int?>("SSS_Meetings_Iter2"),
+            SSS_People_Iter1 = scopeStructValue.GetField<int?>("SSS_People_Iter1"),
+            SSS_People_Iter2 = scopeStructValue.GetField<int?>("SSS_People_Iter2"),
+            SSS_Personal_Files_Iter1 = scopeStructValue.GetField<int?>("SSS_Personal_Files_Iter1"),
+            SSS_Personal_Files_Iter2 = scopeStructValue.GetField<int?>("SSS_Personal_Files_Iter2"),
+            SSS_SlowestProvider_Iter1 = scopeStructValue.GetField<int?>("SSS_SlowestProvider_Iter1"),
+            SSS_SlowestProviderName_Iter1 = scopeStructValue.GetField<string>("SSS_SlowestProviderName_Iter1"),
+            SSS_SlowestProvider_Iter2 = scopeStructValue.GetField<int?>("SSS_SlowestProvider_Iter2"),
+            SSS_SlowestProviderName_Iter2 = scopeStructValue.GetField<string>("SSS_SlowestProviderName_Iter2"),
+            SSS_FileContent_Iter1 = scopeStructValue.GetField<int?>("SSS_FileContent_Iter1"),
+            SSS_FileContent_Iter2 = scopeStructValue.GetField<int?>("SSS_FileContent_Iter2"),
+            SSS_EventContent_Iter1 = scopeStructValue.GetField<int?>("SSS_EventContent_Iter1"),
+            SSS_EventContent_Iter2 = scopeStructValue.GetField<int?>("SSS_EventContent_Iter2"),
+            SSS_EmailContent_Iter1 = scopeStructValue.GetField<int?>("SSS_EmailContent_Iter1"),
+            SSS_EmailContent_Iter2 = scopeStructValue.GetField<int?>("SSS_EmailContent_Iter2"),
+            SSS_ExternalContent_Iter1 = scopeStructValue.GetField<int?>("SSS_ExternalContent_Iter1"),
+            SSS_ExternalContent_Iter2 = scopeStructValue.GetField<int?>("SSS_ExternalContent_Iter2"),
+            SSS_Calendar_Iter1 = scopeStructValue.GetField<int?>("SSS_Calendar_Iter1"),
+            SSS_Calendar_Iter2 = scopeStructValue.GetField<int?>("SSS_Calendar_Iter2"),
+            SSS_Teams_Iter1 = scopeStructValue.GetField<int?>("SSS_Teams_Iter1"),
+            SSS_Teams_Iter2 = scopeStructValue.GetField<int?>("SSS_Teams_Iter2"),
+            SSS_GraphConnector_Iter1 = scopeStructValue.GetField<int?>("SSS_GraphConnector_Iter1"),
+            SSS_GraphConnector_Iter2 = scopeStructValue.GetField<int?>("SSS_GraphConnector_Iter2"),
+			SSS_Transcripts_Iter1 = scopeStructValue.GetField<int?>("SSS_Transcripts_Iter1"),
+			SSS_Transcripts_Iter2 = scopeStructValue.GetField<int?>("SSS_Transcripts_Iter2"),
+			SSS_Moments_Iter1 = scopeStructValue.GetField<int?>("SSS_Moments_Iter1"),
+			SSS_Moments_Iter2 = scopeStructValue.GetField<int?>("SSS_Moments_Iter2"),
+			SSS_Moments_RunAsync_Iter1 = scopeStructValue.GetField<int?>("SSS_Moments_RunAsync_Iter1"),
+			SSS_Moments_RunAsync_Iter2 = scopeStructValue.GetField<int?>("SSS_Moments_RunAsync_Iter2"),
+			SSS_Moments_RunAsync_MomentsContentProvider_Iter1 = scopeStructValue.GetField<int?>("SSS_Moments_RunAsync_MomentsContentProvider_Iter1"),
+			SSS_Moments_RunAsync_MomentsContentProvider_Iter2 = scopeStructValue.GetField<int?>("SSS_Moments_RunAsync_MomentsContentProvider_Iter2"),
+			SSS_Moments_RunAsync_MomentsProvider_Iter1 = scopeStructValue.GetField<int?>("SSS_Moments_RunAsync_MomentsProvider_Iter1"),
+			SSS_Moments_RunAsync_MomentsProvider_Iter2 = scopeStructValue.GetField<int?>("SSS_Moments_RunAsync_MomentsProvider_Iter2"),
+			SSS_Moments_RunAsync_MomentsProvider_MomentsService_Iter1 = scopeStructValue.GetField<int?>("SSS_Moments_RunAsync_MomentsProvider_MomentsService_Iter1"),
+			SSS_Moments_RunAsync_MomentsProvider_MomentsService_Iter2 = scopeStructValue.GetField<int?>("SSS_Moments_RunAsync_MomentsProvider_MomentsService_Iter2")
+        };
+
+        return JsonConvert.SerializeObject(sssToolsLatency, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+
+    public static string FromFlightStructToString(ScopeStruct scopeStruct)
+    {
+        var flight = new Flight {
+            SydneyFlights = scopeStruct.GetField<string>("SydneyFlights"),
+            ClientFlights = scopeStruct.GetField<string>("ClientFlights"),
+            SSSFlights = scopeStruct.GetField<string>("SSSFlights"),
+            ShadowTriggerFlights = scopeStruct.GetField<string>("ShadowTriggerFlights"),
+            ShadowOverrideFlights = scopeStruct.GetField<string>("ShadowOverrideFlights"),
+            SideBySideOverrideFlights = scopeStruct.GetField<string>("SideBySideOverrideFlights")
+        };
+
+        return JsonConvert.SerializeObject(flight, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromArrayStringArrayToString(ScopeArray<ScopeArray<string>> scopeArrayOfArray)
+    {
+        if (scopeArrayOfArray == null)
+        {
+            return null;
+        }
+
+        List<string> result = new List<string>();
+        foreach(var scopeArray in scopeArrayOfArray)
+        {
+            result.Add(string.Join(", ", scopeArray));
+        }
+        return string.Join(" /// ", result);
+    }
+
+    public static string FromToolExecutionDetailsToString(ScopeArray<ScopeArray<ScopeStruct>> scopeArrayOfArrayWithStruct)
+    {
+        if (scopeArrayOfArrayWithStruct == null)
+        {
+            return null;
+        }
+
+        List<string> outerResult = new List<string>();
+        foreach(var scopeArrayWithStruct in scopeArrayOfArrayWithStruct)
+        {
+            List<ToolExecutionDetail> innerResult = new List<ToolExecutionDetail>();
+            foreach (var scopeStruct in scopeArrayWithStruct)
+            {
+                innerResult.Add(new ToolExecutionDetail {
+                    ToolName = scopeStruct.GetField<string>("ToolName"),
+                    QueryCount = scopeStruct.GetField<int?>("QueryCount"),
+                    Domain = scopeStruct.GetField<string>("Domain")
+                });
+            }
+            outerResult.Add(JsonConvert.SerializeObject(innerResult, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore}));
+        }
+        return string.Join(" /// ", outerResult);
+    }
+
+    public static string FromActionStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        List<Action> result = new List<Action>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            result.Add(
+                new Action {
+                    Timestamp = scopeStruct.GetField<DateTime?>("Timestamp"),
+                    Version = scopeStruct.GetField<string>("Version"),
+                    EventType = scopeStruct.GetField<string>("EventType"),
+                    EventScope = scopeStruct.GetField<string>("EventScope"),
+                    Index = scopeStruct.GetField<int?>("Index"),
+                    Latency = scopeStruct.GetField<string>("Latency"),
+                    ExtendedProperties = scopeStruct.GetField<string>("ExtendedProperties"),
+                    CustomProperties = scopeStruct.GetField<string>("CustomProperties"),
+                    IsExportable = scopeStruct.GetField<bool?>("IsExportable")
+                }
+            );
+        }
+
+        return JsonConvert.SerializeObject(result, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromUsedEntityAnnotationsStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<UsedEntityAnnotations> result = new List<UsedEntityAnnotations>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            result.Add(new UsedEntityAnnotations {
+                Type = scopeStruct.GetField<string>("Type"),
+                IsHeroEntity = scopeStruct.GetField<bool?>("IsHeroEntity"),
+                SubType = scopeStruct.GetField<string>("SubType")
+            });
+        }
+
+        return JsonConvert.SerializeObject(result, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromPluginExecutionsStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<PluginExecutions> result = new List<PluginExecutions>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            result.Add(new PluginExecutions {
+                PluginId = scopeStruct.GetField<string>("PluginId"),
+                PluginType = scopeStruct.GetField<string>("PluginType"),
+                AppKind = scopeStruct.GetField<string>("AppKind"),
+                PluginVersion = scopeStruct.GetField<string>("PluginVersion"),
+                RuntimeType = scopeStruct.GetField<string>("RuntimeType")
+            });
+        }
+
+        return JsonConvert.SerializeObject(result, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromAgentExtendedDataStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<AgentExtendedData> result = new List<AgentExtendedData>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            var overriddenCapabilitiesArray = scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct>>("OverriddenCapabilities");
+            var overriddenCapabilities = new List<OverriddenCapability>();
+            if (overriddenCapabilitiesArray != null)
+            {
+                foreach (var overriddenCapStruct in overriddenCapabilitiesArray)
+                {
+                    overriddenCapabilities.Add(new OverriddenCapability
+                    {
+                        Name = overriddenCapStruct.GetField<string>("Name"),
+                        AllowWorkAccess = overriddenCapStruct.GetField<bool?>("AllowWorkAccess")
+                    });
+                }
+            }
+
+            result.Add(new AgentExtendedData {
+                AppKind = scopeStruct.GetField<string>("AppKind"),
+                AppId = scopeStruct.GetField<string>("AppId"),
+                BuilderName = scopeStruct.GetField<string>("BuilderName"),
+                Capabilities = new List<string>(scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeArray<string>>("Capabilities").Select(x => x)),
+                TitleId = scopeStruct.GetField<string>("TitleId"),
+                Type = scopeStruct.GetField<string>("Type"),
+                AgentName = scopeStruct.GetField<string>("AgentName"),
+                CatalogName = scopeStruct.GetField<string>("CatalogName"),
+                ThreadLevelGptId = scopeStruct.GetField<string>("ThreadLevelGptId"),
+                SchemaName = scopeStruct.GetField<string>("SchemaName"),
+                OverriddenCapabilities = overriddenCapabilities
+            });
+        }
+
+        return JsonConvert.SerializeObject(result, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromMeteringCheckResponseStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<MeteringCheckResponse> result = new List<MeteringCheckResponse>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            result.Add(new MeteringCheckResponse {
+                Skill = scopeStruct.GetField<string>("Skill"),
+                MeterSpun = scopeStruct.GetField<bool?>("MeterSpun"),
+                MeterErrorType = scopeStruct.GetField<string>("MeterErrorType"),
+                MeterErrorMessage = scopeStruct.GetField<string>("MeterErrorMessage"),
+                MeterModel = scopeStruct.GetField<string>("MeterModel"),
+                InteractionSpunCount = scopeStruct.GetField<int?>("InteractionSpunCount"),
+                SpinCostUnits = scopeStruct.GetField<int?>("SpinCostUnits"),
+                IsBlockedByMetering = scopeStruct.GetField<bool?>("IsBlockedByMetering")
+            });
+        }
+
+        return JsonConvert.SerializeObject(result, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromMeteringSpinResponseStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<MeteringSpinResponse> result = new List<MeteringSpinResponse>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            result.Add(new MeteringSpinResponse {
+                Skill = scopeStruct.GetField<string>("Skill"),
+                TotalAllowance = scopeStruct.GetField<int?>("TotalAllowance"),
+                UsedAllowance = scopeStruct.GetField<int?>("UsedAllowance"),
+                MeterSpun = scopeStruct.GetField<bool?>("MeterSpun"),
+                MeterErrorType = scopeStruct.GetField<string>("MeterErrorType"),
+                MeterErrorMessage = scopeStruct.GetField<string>("MeterErrorMessage"),
+                IsSkillOnboarded = scopeStruct.GetField<bool?>("IsSkillOnboarded"),
+                AllowanceAdjusted = scopeStruct.GetField<bool?>("AllowanceAdjusted"),
+                RefreshRate = scopeStruct.GetField<string>("RefreshRate"),
+                MeterModel = scopeStruct.GetField<string>("MeterModel"),
+                InteractionSpunCount = scopeStruct.GetField<int?>("InteractionSpunCount"),
+                SpinCostUnits = scopeStruct.GetField<int?>("SpinCostUnits")
+            });
+        }
+
+        return JsonConvert.SerializeObject(result, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+ 
+    public static string FromMeteringSpinRequestStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<MeteringSpinRequest> result = new List<MeteringSpinRequest>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            result.Add(new MeteringSpinRequest {
+                Skill = scopeStruct.GetField<string>("Skill"),
+                ExerciseCount = scopeStruct.GetField<int?>("ExerciseCount")
+            });
+        }
+
+        return JsonConvert.SerializeObject(result, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromRealtimeConnectionResultStructToString(ScopeStruct scopeStruct)
+    {
+        if(scopeStruct == null){
+            return null;
+        }
+
+        var realtimeConnectionResult = new RealtimeConnectionResult {
+            ConnectionDurationInMs = scopeStruct.GetField<int?>("ConnectionDurationInMs"),
+            ConnectionSetupLatencyInMs = scopeStruct.GetField<int?>("ConnectionSetupLatencyInMs"),
+            Status = scopeStruct.GetField<string>("Status")
+        };
+
+        return JsonConvert.SerializeObject(realtimeConnectionResult, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromExtensionExecutionFlowStructToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<ExtensionExecutionFlow> result = new List<ExtensionExecutionFlow>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            result.Add(
+                new ExtensionExecutionFlow {
+                    ExtensionName = scopeStruct.GetField<string>("ExtensionName"),
+                    ExtensionOutCome = scopeStruct.GetField<string>("ExtensionOutCome"),
+                    Timestamp = scopeStruct.GetField<DateTime?>("Timestamp"),
+                    ExtensionId = scopeStruct.GetField<string>("ExtensionId")
+            });
+        }
+
+        return JsonConvert.SerializeObject(result, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromClientInformationStructToString(ScopeStruct scopeStruct)
+    {
+        if(scopeStruct == null){
+            return null;
+        }
+
+        var clientInformation = new ClientInformation {
+            DeviceOS = scopeStruct.GetField<string>("DeviceOS"),
+            DeviceType = scopeStruct.GetField<string>("DeviceType"),
+            UserAgent = scopeStruct.GetField<string>("UserAgent"),
+            ClientAppType = scopeStruct.GetField<string>("ClientAppType"),
+            ClientInstrumentationVersion = scopeStruct.GetField<string>("ClientInstrumentationVersion"),
+            ClientPlatformVersion = scopeStruct.GetField<string>("ClientPlatformVersion")
+        };
+
+        return JsonConvert.SerializeObject(clientInformation, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromCustomInstructionUpsertResultStructToString(ScopeStruct scopeStruct)
+    {
+        if(scopeStruct == null){
+            return null;
+        }
+
+        var customInstructionUpsertResult = new CustomInstructionUpsertResult {
+            Source = scopeStruct.GetField<string>("Source"),
+            Status = scopeStruct.GetField<string>("Status")
+        };
+
+        return JsonConvert.SerializeObject(customInstructionUpsertResult, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromPersonalizationSettingsStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<PersonalizationSettings> result = new List<PersonalizationSettings>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            result.Add(new PersonalizationSettings {
+                CustomInstructionToggle = scopeStruct.GetField<bool?>("CustomInstructionToggle"),
+                MemoryToggle = scopeStruct.GetField<bool?>("MemoryToggle"),
+                IsTemporaryChat = scopeStruct.GetField<bool?>("IsTemporaryChat"),
+                isCustomInstructionEmpty = scopeStruct.GetField<bool?>("isCustomInstructionEmpty"),
+                isMemoryEmpty = scopeStruct.GetField<bool?>("isMemoryEmpty")
+            });
+        }
+
+        return JsonConvert.SerializeObject(result, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromSkdsMetricsStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<SkdsMetrics> result = new List<SkdsMetrics>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            result.Add(new SkdsMetrics {
+                MetricName = scopeStruct.GetField<string>("MetricName"),
+                MetricValue = scopeStruct.GetField<int?>("MetricValue"),
+                Timestamp = scopeStruct.GetField<DateTime?>("Timestamp")
+            });
+        }
+
+        return JsonConvert.SerializeObject(result, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromSensitivityLabelStructToString(ScopeStruct scopeStruct)
+    {
+        if(scopeStruct == null){
+            return null;
+        }
+
+        var sensitivityLabel = new SensitivityLabel {
+            IsAnswerMessageHasSensitivityLabelId = scopeStruct.GetField<string>("IsAnswerMessageHasSensitivityLabelId")
+        };
+
+        return JsonConvert.SerializeObject(sensitivityLabel, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromProductInformationStructToString(ScopeStruct scopeStruct)
+    {
+        if(scopeStruct == null){
+            return null;
+        }
+
+        var productInformation = new ProductInformation {
+            ProductEntryPoint = scopeStruct.GetField<string>("ProductEntryPoint"),
+            ProductCategory = scopeStruct.GetField<string>("ProductCategory"),
+            ProductName = scopeStruct.GetField<string>("ProductName"),
+            CallingAppId = scopeStruct.GetField<string>("CallingAppId"),
+            Agent = scopeStruct.GetField<string>("Agent"),
+            AgentHost = scopeStruct.GetField<string>("AgentHost"),
+            AgentFormFactor = scopeStruct.GetField<string>("AgentFormFactor"),
+            UserType = scopeStruct.GetField<string>("UserType"),
+            UserLicenseType = scopeStruct.GetField<string>("UserLicenseType"),
+            CompliantAgentName = scopeStruct.GetField<string>("CompliantAgentName")
+        };
+
+        return JsonConvert.SerializeObject(productInformation, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromSideBySideToString(ScopeStruct scopeStruct)
+    {
+        if(scopeStruct == null){
+            return null;
+        }
+
+        var value = new SideBySide {
+            VariantType = scopeStruct.GetField<string>("VariantType"),
+            IsForceShown = scopeStruct.GetField<bool?>("IsForceShown"),
+            IsTurnEligible = scopeStruct.GetField<bool?>("IsTurnEligible"),
+            IsShownEligible = scopeStruct.GetField<bool?>("IsShownEligible"),
+            IsUserEligible = scopeStruct.GetField<bool?>("IsUserEligible"),
+            ExperimentEligible = scopeStruct.GetField<bool?>("ExperimentEligible"),
+            AttemptTreatmentRequest = scopeStruct.GetField<bool?>("AttemptTreatmentRequest"),
+            ExperimentId = scopeStruct.GetField<string>("ExperimentId"),
+            ConversationIds = new List<string>(scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeArray<string>>("ConversationIds").Select(x => x)),
+            MessagePosition = new List<string>(scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeArray<string>>("MessagePosition").Select(x => x)),
+            ExperimentType = scopeStruct.GetField<string>("ExperimentType"),
+            TimeTakenSideBySide = new TimeTakenSideBySide
+                {
+                    StorageTime = scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeStruct>("TimeTakenSideBySide").GetField<int?>("StorageTime"),
+                    EvalTime = scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeStruct>("TimeTakenSideBySide").GetField<int?>("EvalTime"),
+                    EarlyMessageTime = scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeStruct>("TimeTakenSideBySide").GetField<int?>("EarlyMessageTime"),
+                    FinalMessageTime = scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeStruct>("TimeTakenSideBySide").GetField<int?>("FinalMessageTime"),
+                },
+            Status = scopeStruct.GetField<string>("Status")
+        };
+
+        return JsonConvert.SerializeObject(value);
+    }
+
+    public static string FromChatPlusPagesStructArrayToString(ScopeArray<ScopeStruct> scopeArrayWithStruct)
+    {
+        if (scopeArrayWithStruct == null) {
+            return "[]";
+        }
+
+        List<ChatPlusPages> result = new List<ChatPlusPages>();
+        foreach (var scopeStruct in scopeArrayWithStruct)
+        {
+            var pagesResponseContentTypeArray = scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeArray<string>>("PagesResponseContentType");
+            var pagesGroundingTypeArray = scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeArray<string>>("PagesGroundingType");
+
+            result.Add(new ChatPlusPages {
+                PageContentLength = scopeStruct.GetField<int?>("PageContentLength"),
+                ToolInvocationLengthPerLLMFunction = scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeMap<string, int?>>("ToolInvocationLengthPerLLMFunction") != null 
+                    ? scopeStruct.GetField<Microsoft.SCOPE.Types.ScopeMap<string, int?>>("ToolInvocationLengthPerLLMFunction")
+                        .ToDictionary(kvp => kvp.Key, kvp => kvp.Value)
+                    : null,
+                PagesResponseContentType = pagesResponseContentTypeArray != null ? new List<string>(pagesResponseContentTypeArray) : new List<string>(),
+                PagesGroundingType = pagesGroundingTypeArray != null ? new List<string>(pagesGroundingTypeArray) : new List<string>()
+            });
+        }
+
+        return JsonConvert.SerializeObject(result, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+
+    public static string FromTeamsMeetingMetadataStructToString(Microsoft.SCOPE.Types.ScopeStruct scopeStruct)
+    {
+        if (scopeStruct == null)
+        {
+            return null;
+        }
+
+        var teamsMeetingMetadata = new TeamsMeetingMetadata
+        {
+            CallId = scopeStruct.GetField<string>("CallId"),
+            ThreadId = scopeStruct.GetField<string>("ThreadId")
+        };
+
+        return JsonConvert.SerializeObject(teamsMeetingMetadata, new JsonSerializerSettings {NullValueHandling = NullValueHandling.Ignore});
+    }
+}
+
+// -- used for Action columns deserialization
+public class Action
+{
+    public DateTime? Timestamp {get; set;}
+    public string Version {get; set;}
+    public string EventType {get; set;}
+    public string EventScope {get; set;}
+    public int? Index {get; set;}
+    public string Latency {get; set;}
+    public string ExtendedProperties {get; set;}
+    public string CustomProperties {get; set;}
+    public bool? IsExportable {get; set;}
+}
+// --
+
+// -- used for 3SRequests deserialization in the SydneySignalLogsExtractor extractor
+public class SSSRequests
+{
+    public string ImpressionId { get; set; }
+    public DateTime? Timestamp { get; set; }
+    public int? RestrictedSearchMode { get; set; } // not in our schema
+    public int? ResultCount { get; set; } // not in our schema
+    public int? IterationSequenceNumber { get; set; }
+    public string HttpStatus { get; set; }
+    public double? Latency { get; set; }
+    public List<SSSRequestsResults> Results { get; set; }
+    public List<string> GroundingHints { get; set; }
+    public List<SSSRequestsSensitivityLabel> SensitivityLabel { get; set; }
+}
+
+public class SSSRequestsResults
+{
+    public string ReferenceId { get; set; }
+    public string GlobalEntityIds { get; set; }
+    public string EntityType { get; set; }
+    public string Provenance { get; set; } // ContentSource
+    public string ResultSearchType { get; set; }
+    public int? Position { get; set; }
+    public List<SSSRequestsResultsRelatedContent> RelatedContent { get; set; }
+}
+
+public class SSSRequestsResultsRelatedContent
+{
+    public string Type { get; set; }
+}
+
+public class SSSRequestsSensitivityLabel
+{
+    public bool? HasSensitivityLabelId { get; set; }
+    public bool? HasSensitivityLabel { get; set; }
+    public bool? IsContainerSensitivityLabel { get; set; }
+}
+// --
+
+// -- used for BingRequests deserialization in the SydneySignalLogsExtractor extractor
+public class BingRequests
+{
+    public DateTime? Timestamp { get; set; }
+    public string ImpressionId { get; set; }
+    public string HttpStatus { get; set; }
+    public double? Latency { get; set; }
+    public int? ResultCount { get; set; }
+    public int? IterationSequenceNumber { get; set; }
+}
+// --
+
+// -- used for LLMRequests deserialization in the SydneySignalLogsExtractor extractor
+public class LLMRequests
+{
+    public DateTime? Timestamp { get; set; }
+    public string Id { get; set; }
+    public string LLMModel { get; set; }
+    public string HttpStatus { get; set; }
+    public double? Latency { get; set; }
+    public LLMRequestsTokensCount TokensCount { get; set; }
+    public string LLMModelName { get; set; }
+    public string ModelClassification { get; set; }
+    public string SwitcherModelOutput { get; set; }
+}
+
+public class LLMRequestsTokensCount
+{
+    public string CallTag { get; set; }
+    public string InputTokenType { get; set; }
+    public long? InputTokensCount { get; set; }
+    public long? OutputTokensCount { get; set; }
+}
+// --
+
+// -- used for ReferenceCitations deserialization in the SydneySignalLogsExtractor extractor
+public class ReferenceCitations
+{
+    public string DataSource { get; set; }
+    public string SourceType { get; set; }
+    public string ResultSearchType { get; set; }
+    public string FromTuring { get; set; }
+    public string SubType { get; set; }
+    public string Type { get; set; }
+    public string Provenance { get; set; }
+    public bool? IsWork { get; set; }
+    public string ReferenceId { get; set; }
+    public string GlobalEntityIds { get; set; }
+    public string SCDSubType { get; set; }
+    public string LayoutType { get; set; }
+    public string PluginId { get; set; }
+    public string PluginType { get; set; }
+    public bool? IsCitedInResponse { get; set; }
+    public string AppKind { get; set; }
+}
+// --
+
+// -- used for SuggestionResults deserialization
+public class SuggestionResults
+{
+    public DateTime? Timestamp { get; set; }
+    public string MessageId { get; set; }
+    public string SuggestionCategory { get; set; }
+}
+// --
+
+// -- used for CopilotExtensionIds deserialization
+public class CopilotExtensionIds
+{
+    public string Id { get; set; }
+}
+// --
+
+// -- used for UsedEntityAnnotations deserialization in the SydneySignalLogsExtractor extractor
+public class UsedEntityAnnotations
+{
+    public string Type { get; set; }
+    public bool? IsHeroEntity { get; set; }
+    public string SubType { get; set; }
+}
+//
+
+// -- used for PluginExecutions deserialization in the SydneySignalLogsExtractor extractor
+public class PluginExecutions
+{
+    public string PluginId { get; set; }
+    public string PluginType { get; set; }
+    public string AppKind { get; set; }
+    public string PluginVersion {get; set;}
+    public string RuntimeType {get; set;}
+}
+//
+
+// -- used for AgentExtendedData deserialization in the SydneySignalLogsExtractor extractor
+public class AgentExtendedData
+{
+    public string AppKind { get; set; }
+    public string AppId { get; set; }
+    public string BuilderName { get; set; }
+    public List<string> Capabilities { get; set; }
+    public string TitleId { get; set; }
+    public string Type { get; set; }
+    public string AgentName { get; set; }
+    public string CatalogName { get; set; }
+    public string ThreadLevelGptId { get; set; }
+    public string SchemaName { get; set; }
+    public List<OverriddenCapability> OverriddenCapabilities { get; set; }
+}
+
+public class OverriddenCapability
+{
+    public string Name { get; set; }
+    public bool? AllowWorkAccess { get; set; }
+}
+//
+
+// -- used for MeteringCheckResponse deserialization in the SydneySignalLogsExtractor extractor
+class MeteringCheckResponse 
+{
+    public string Skill { get; set; }
+    public bool? MeterSpun { get; set; }
+    public string MeterErrorType { get; set; }
+    public string MeterErrorMessage { get; set; }
+    public string MeterModel { get; set; }
+    public int? InteractionSpunCount { get; set; }
+    public int? SpinCostUnits { get; set; }
+    public bool? IsBlockedByMetering { get; set; }
+}
+//
+
+// -- used for MeteringSpinResponse deserialization in the SydenySignalLogsExtractor extractor
+class MeteringSpinResponse
+{
+    public string Skill { get; set; }
+    public int? TotalAllowance { get; set; }
+    public int? UsedAllowance { get; set; }
+    public bool? MeterSpun { get; set; }
+    public string MeterErrorType { get; set; }
+    public string MeterErrorMessage { get; set; }
+    public bool? IsSkillOnboarded { get; set; }
+    public bool? AllowanceAdjusted { get; set; }
+    public string RefreshRate { get; set; }
+    public string MeterModel { get; set; }
+    public int? InteractionSpunCount { get; set; }
+    public int? SpinCostUnits { get; set; }
+}
+//
+
+// -- used for MeteringSpinRequest deserialization in the SydneySignalLogsExtractor extractor
+class MeteringSpinRequest
+{
+    public string Skill { get; set; }
+    public int? ExerciseCount { get; set; }
+}
+//
+
+// -- used for SSSToolsLatency deserialization
+public class SSSToolsLatency
+{
+    public int? SSS_Emails_Iter1 { get; set; }
+    public int? SSS_Emails_Iter2 { get; set; }
+    public int? SSS_Files_Iter1 { get; set; }
+    public int? SSS_Files_Iter2 { get; set; }
+    public int? SSS_Chat_Iter1 { get; set; }
+    public int? SSS_Chat_Iter2 { get; set; }
+    public int? SSS_Meetings_Iter1 { get; set; }
+    public int? SSS_Meetings_Iter2 { get; set; }
+    public int? SSS_People_Iter1 { get; set; }
+    public int? SSS_People_Iter2 { get; set; }
+    public int? SSS_Personal_Files_Iter1 { get; set; }
+    public int? SSS_Personal_Files_Iter2 { get; set; }
+    public int? SSS_SlowestProvider_Iter1 { get; set; }
+    public string SSS_SlowestProviderName_Iter1 { get; set; }
+    public int? SSS_SlowestProvider_Iter2 { get; set; }
+    public string SSS_SlowestProviderName_Iter2 { get; set; }
+    public int? SSS_FileContent_Iter1 { get; set; }
+    public int? SSS_FileContent_Iter2 { get; set; }
+    public int? SSS_EventContent_Iter1 { get; set; }
+    public int? SSS_EventContent_Iter2 { get; set; }
+    public int? SSS_EmailContent_Iter1 { get; set; }
+    public int? SSS_EmailContent_Iter2 { get; set; }
+    public int? SSS_ExternalContent_Iter1 { get; set; }
+    public int? SSS_ExternalContent_Iter2 { get; set; }
+    public int? SSS_Calendar_Iter1 { get; set; }
+    public int? SSS_Calendar_Iter2 { get; set; }
+    public int? SSS_Teams_Iter1 { get; set; }
+    public int? SSS_Teams_Iter2 { get; set; }
+    public int? SSS_GraphConnector_Iter1 { get; set; }
+    public int? SSS_GraphConnector_Iter2 { get; set; }
+    public int? SSS_Transcripts_Iter1 { get; set; }
+    public int? SSS_Transcripts_Iter2 { get; set; }
+    public int? SSS_Moments_Iter1 { get; set; }
+    public int? SSS_Moments_Iter2 { get; set; }
+    public int? SSS_Moments_RunAsync_Iter1 { get; set; }
+    public int? SSS_Moments_RunAsync_Iter2 { get; set; }
+    public int? SSS_Moments_RunAsync_MomentsContentProvider_Iter1 { get; set; }
+    public int? SSS_Moments_RunAsync_MomentsContentProvider_Iter2 { get; set; }
+    public int? SSS_Moments_RunAsync_MomentsProvider_Iter1 { get; set; }
+    public int? SSS_Moments_RunAsync_MomentsProvider_Iter2 { get; set; }
+    public int? SSS_Moments_RunAsync_MomentsProvider_MomentsService_Iter1 { get; set; }
+    public int? SSS_Moments_RunAsync_MomentsProvider_MomentsService_Iter2 { get; set; }
+}
+//
+
+// -- used for Flight columns deserialization
+public class Flight
+{
+    public string SydneyFlights {get; set;}
+    public string ClientFlights {get; set;}
+    public string SSSFlights {get; set;}
+    public string ShadowTriggerFlights {get; set;}
+    public string ShadowOverrideFlights {get; set;}
+    public string SideBySideOverrideFlights {get; set;}
+}
+
+// -- used for RealtimeConnectionResult deserialization in the SydenySignalLogsExtractor extractor
+class RealtimeConnectionResult
+{
+    public int? ConnectionDurationInMs { get; set; }
+    public int? ConnectionSetupLatencyInMs { get; set; }
+    public string Status { get; set; } // "Undefined", "Success", "Expired", "UnexpectedError"
+}
+// --
+
+// -- used for ClientInformation deserialization in the SydenySignalLogsExtractor extractor
+class ClientInformation
+{
+    public string DeviceOS { get; set; } 
+    public string DeviceType { get; set; }
+    public string UserAgent { get; set; }
+    public string ClientAppType { get; set; }
+    public string ClientInstrumentationVersion { get; set; }
+    public string ClientPlatformVersion { get; set; }
+}
+//
+
+// -- used for ExtensionExecutionFlow deserialization in the SydenySignalLogsExtractor extractor
+class ExtensionExecutionFlow
+{
+    public string ExtensionName { get; set; }
+    public string ExtensionOutCome { get; set; }
+    public DateTime? Timestamp { get; set; }
+    public string ExtensionId { get; set; }
+}
+//
+
+// -- used for CustomInstructionUpsertResult deserialization in the SydenySignalLogsExtractor extractor
+class CustomInstructionUpsertResult
+{
+    public string Source { get ; set; } 
+    public string Status { get; set; } 
+}
+// --
+
+// -- used for PersonalizationSettings deserialization in the SydenySignalLogsExtractor extractor
+class PersonalizationSettings
+{
+    public bool? CustomInstructionToggle { get ; set; }
+    public bool? MemoryToggle { get ; set; }
+    public bool? IsTemporaryChat { get ; set; }
+    public bool? isCustomInstructionEmpty { get ; set; }
+    public bool? isMemoryEmpty { get ; set; }
+}
+// --
+
+// -- used for SkdsMetrics deserialization in the SydenySignalLogsExtractor extractor
+class SkdsMetrics
+{
+    public string MetricName { get ; set; }
+    public int? MetricValue { get ; set; }
+    public DateTime? Timestamp { get ; set; }
+}
+// --
+
+// -- used for SensitivityLabel deserialization in the SydenySignalLogsExtractor extractor
+class SensitivityLabel
+{
+    public string IsAnswerMessageHasSensitivityLabelId { get ; set; }
+}
+// --
+
+// -- used for ChatPlusPages deserialization in the SydenySignalLogsExtractor extractor
+class ChatPlusPages
+{
+    public int? PageContentLength { get ; set; }
+    public Dictionary<string, int?> ToolInvocationLengthPerLLMFunction { get; set; }
+    public List<string> PagesResponseContentType { get ; set; }
+    public List<string> PagesGroundingType { get ; set; }
+}
+// --
+
+public class ProductInformation
+{
+    public string ProductEntryPoint { get; set; }
+    public string ProductCategory { get; set; }
+    public string ProductName { get; set; }
+    public string CallingAppId { get; set; }
+    public string Agent { get; set; }
+    public string AgentHost { get; set; }
+    public string AgentFormFactor { get; set; }
+    public string UserType { get; set; }
+    public string UserLicenseType { get; set; }
+    public string CompliantAgentName { get; set; }
+}
+
+// -- used for ToolExecutionDetails deserialization
+public class ToolExecutionDetail
+{
+    public string ToolName { get; set; }
+    public int? QueryCount { get; set; }
+    public string Domain { get; set; }
+}
+// --
+
+// -- used for SideBySide deserialization in the SydenySignalLogsExtractor extractor
+class SideBySide
+{
+    public string VariantType { get ; set; }
+    public bool? IsForceShown { get ; set; }
+    public bool? IsTurnEligible { get ; set; }
+    public bool? IsShownEligible { get ; set; }
+    public bool? IsUserEligible { get ; set; }
+    public bool? ExperimentEligible { get ; set; }
+    public bool? AttemptTreatmentRequest { get ; set; }
+    public string ExperimentId { get ; set; }
+    public List<string> ConversationIds { get ; set; }
+    public List<string> MessagePosition { get ; set; }
+    public string ExperimentType { get ; set; }
+    public TimeTakenSideBySide TimeTakenSideBySide { get ; set; }
+    public string Status { get ; set; }
+}
+
+class TimeTakenSideBySide
+{
+    public int? StorageTime { get ; set; }
+    public int? EvalTime { get ; set; }
+    public int? EarlyMessageTime { get ; set; }
+    public int? FinalMessageTime { get ; set; }
+}
+// --
+
+// -- used for TeamsMeetingMetadata deserialization in the SydenySignalLogsExtractor extractor
+class TeamsMeetingMetadata
+{
+    public string CallId { get; set; }
+    public string ThreadId { get; set; }
+}
+// --
+
+#ENDCS

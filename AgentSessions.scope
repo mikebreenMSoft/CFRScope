@@ -1,0 +1,168 @@
+MODULE "/shares/exchange.storage.prod/local/PrivacyAnnotation/PrivacyAnnotation.module";
+USING Microsoft.DataMap.CodeAnnotation.Cosmos;
+
+#DECLARE startDate DateTime = new DateTime(2025, 9, 1);
+#DECLARE endDate DateTime = new DateTime(2025, 9, 2);
+
+// Define the AgentExtendedData class and helper function //
+#CS
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+public class AgentExtendedData
+{
+    public string AppKind { get; set; }
+    public string AppId { get; set; }
+    public string BuilderName { get; set; }
+    public List<string> Capabilities { get; set; }
+    public string TitleId { get; set; }
+    public string Type { get; set; }
+    public string AgentName { get; set; }
+    public string CatalogName { get; set; }
+    public string ThreadLevelGptId { get; set; }
+    public string SchemaName { get; set; }
+    
+    public override string ToString()
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.Append("{");
+        sb.AppendFormat("\"AppKind\":\"{0}\",", AppKind ?? "");
+        sb.AppendFormat("\"AppId\":\"{0}\",", AppId ?? "");
+        sb.AppendFormat("\"BuilderName\":\"{0}\",", BuilderName ?? "");
+        sb.AppendFormat("\"TitleId\":\"{0}\",", TitleId ?? "");
+        sb.AppendFormat("\"Type\":\"{0}\",", Type ?? "");
+        sb.AppendFormat("\"AgentName\":\"{0}\",", AgentName ?? "");
+        sb.AppendFormat("\"CatalogName\":\"{0}\",", CatalogName ?? "");
+        sb.AppendFormat("\"ThreadLevelGptId\":\"{0}\",", ThreadLevelGptId ?? "");
+        sb.AppendFormat("\"SchemaName\":\"{0}\",", SchemaName ?? "");
+        sb.AppendFormat("\"Capabilities\":[{0}]", Capabilities != null ? string.Join(",", Capabilities.Select(c => "\"" + c + "\"")) : "");
+        sb.Append("}");
+        return sb.ToString();
+    }
+}
+
+public static class AgentDataProcessor
+{
+    public static int GetAgentCount(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct)
+    {
+        return scopeArrayWithStruct?.Count ?? 0;
+    }
+    
+    public static string GetAgentAppKind(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct, int index)
+    {
+        if (scopeArrayWithStruct == null || index >= scopeArrayWithStruct.Count) return null;
+        return scopeArrayWithStruct[index].GetField<string>("AppKind");
+    }
+    
+    public static string GetAgentAppId(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct, int index)
+    {
+        if (scopeArrayWithStruct == null || index >= scopeArrayWithStruct.Count) return null;
+        return scopeArrayWithStruct[index].GetField<string>("AppId");
+    }
+    
+    public static string GetAgentBuilderName(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct, int index)
+    {
+        if (scopeArrayWithStruct == null || index >= scopeArrayWithStruct.Count) return null;
+        return scopeArrayWithStruct[index].GetField<string>("BuilderName");
+    }
+    
+    public static string GetAgentCapabilities(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct, int index)
+    {
+        if (scopeArrayWithStruct == null || index >= scopeArrayWithStruct.Count) return null;
+        var capabilities = scopeArrayWithStruct[index].GetField<Microsoft.SCOPE.Types.ScopeArray<string>>("Capabilities");
+        if (capabilities == null) return "";
+        return string.Join(";", capabilities.Select(x => x));
+    }
+    
+    public static string GetAgentTitleId(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct, int index)
+    {
+        if (scopeArrayWithStruct == null || index >= scopeArrayWithStruct.Count) return null;
+        return scopeArrayWithStruct[index].GetField<string>("TitleId");
+    }
+    
+    public static string GetAgentType(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct, int index)
+    {
+        if (scopeArrayWithStruct == null || index >= scopeArrayWithStruct.Count) return null;
+        return scopeArrayWithStruct[index].GetField<string>("Type");
+    }
+    
+    public static string GetAgentName(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct, int index)
+    {
+        if (scopeArrayWithStruct == null || index >= scopeArrayWithStruct.Count) return null;
+        return scopeArrayWithStruct[index].GetField<string>("AgentName");
+    }
+    
+    public static string GetAgentCatalogName(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct, int index)
+    {
+        if (scopeArrayWithStruct == null || index >= scopeArrayWithStruct.Count) return null;
+        return scopeArrayWithStruct[index].GetField<string>("CatalogName");
+    }
+    
+    public static string GetAgentThreadLevelGptId(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct, int index)
+    {
+        if (scopeArrayWithStruct == null || index >= scopeArrayWithStruct.Count) return null;
+        return scopeArrayWithStruct[index].GetField<string>("ThreadLevelGptId");
+    }
+    
+    public static string GetAgentSchemaName(Microsoft.SCOPE.Types.ScopeArray<Microsoft.SCOPE.Types.ScopeStruct> scopeArrayWithStruct, int index)
+    {
+        if (scopeArrayWithStruct == null || index >= scopeArrayWithStruct.Count) return null;
+        return scopeArrayWithStruct[index].GetField<string>("SchemaName");
+    }
+}
+#ENDCS
+
+input =
+    VIEW "/shares/exchange.storage.prod/local/MSAI/CopilotUsage/View/CopilotUsageView.view"
+    PARAMS
+    (
+        StartDateTime = @startDate,
+        EndDateTime = @endDate,
+        IsEuropeRegion = false,
+        ConsumptionMode = "Daily"
+    );
+
+// Process the input data to extract agent information
+processedData =
+    SELECT RequestTime,
+           ConversationId,
+           AgentExtendedData,
+           AgentDataProcessor.GetAgentCount(AgentExtendedData) AS AgentCount
+    FROM input
+    WHERE AgentExtendedData != null AND AgentDataProcessor.GetAgentCount(AgentExtendedData) > 0;
+
+// Generate a numbers table for agent indices (assuming max 10 agents per session)
+numbers = 
+    SELECT * FROM (VALUES (0), (1), (2), (3), (4), (5), (6), (7), (8), (9)) AS t(AgentIndex);
+
+// Use cross join to create rows for each agent
+result =
+    SELECT TOP 1000
+           p.RequestTime,
+           p.ConversationId,
+           n.AgentIndex,
+           AgentDataProcessor.GetAgentAppKind(p.AgentExtendedData, n.AgentIndex) AS AppKind,
+           AgentDataProcessor.GetAgentAppId(p.AgentExtendedData, n.AgentIndex) AS AppId,
+           AgentDataProcessor.GetAgentBuilderName(p.AgentExtendedData, n.AgentIndex) AS BuilderName,
+           AgentDataProcessor.GetAgentCapabilities(p.AgentExtendedData, n.AgentIndex) AS Capabilities,
+           AgentDataProcessor.GetAgentTitleId(p.AgentExtendedData, n.AgentIndex) AS TitleId,
+           AgentDataProcessor.GetAgentType(p.AgentExtendedData, n.AgentIndex) AS Type,
+           AgentDataProcessor.GetAgentName(p.AgentExtendedData, n.AgentIndex) AS AgentName,
+           AgentDataProcessor.GetAgentCatalogName(p.AgentExtendedData, n.AgentIndex) AS CatalogName,
+           AgentDataProcessor.GetAgentThreadLevelGptId(p.AgentExtendedData, n.AgentIndex) AS ThreadLevelGptId,
+           AgentDataProcessor.GetAgentSchemaName(p.AgentExtendedData, n.AgentIndex) AS SchemaName
+    FROM processedData AS p
+    CROSS JOIN numbers AS n
+    WHERE n.AgentIndex < p.AgentCount
+      AND AgentDataProcessor.GetAgentAppKind(p.AgentExtendedData, n.AgentIndex) IS NOT NULL
+    ORDER BY RequestTime, AgentIndex;
+
+OUTPUT result
+TO SSTREAM "/shares/IDEAs.Prod.Data/Users.General/gumugrab/CopilotUsageAgents100rowa.ss"
+WITH STREAMEXPIRY "30";
+
+OUTPUT result
+TO "/shares/IDEAs.Prod.Data/Users.General/gumugrab/CopilotUsageAgents1000rows.tsv"
+USING DefaultTextOutputter(delimiter: '\t', outputHeader: true);
